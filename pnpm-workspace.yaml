@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+
+# pnpm 11 reads `engineStrict` from this workspace file (not `.npmrc`), so it is
+# set here to actually block installs on an unsupported Node version. The
+# `.npmrc` `engine-strict=true` entry is kept for npm/corepack compatibility.
+engineStrict: true
