@@ -2,6 +2,7 @@
 description: Plan work for the pi-extensions monorepo - discuss, break into GitHub issues
 argument-hint: "[topic]"
 ---
+
 # Plan
 
 Plan work **before** implementing. Frame the problem, then break it into tracer-bullet GitHub issues that `/implement` can pick up one at a time.
