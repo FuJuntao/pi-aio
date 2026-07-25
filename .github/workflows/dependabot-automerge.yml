@@ -1,0 +1,43 @@
+# Auto-merge low-risk Dependabot PRs (patch/minor) once CI is green.
+#
+# Pairs with `.github/dependabot.yml`, which groups patch+minor updates into one
+# PR per ecosystem and leaves major updates as separate PRs. This workflow
+# enables GitHub's native auto-merge (squash) for any Dependabot PR whose
+# `update-type` is patch or minor, so it merges automatically once the required
+# `CI` status check passes on `main`. PRs containing a major update are skipped
+# for manual review. Applies to both the `npm` and `github-actions` ecosystems.
+#
+# Repo-settings prerequisites (applied separately, not in this file):
+#   - `allow_auto_merge` enabled on the repo.
+#   - The `CI` status check is required on `main`, so auto-merge waits for CI to
+#     pass before merging. Required approving reviews stays at 0.
+name: Dependabot auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Auto-merge patch/minor
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+
+      # `update-type` is the highest semver change in the PR, so a grouped
+      # patch+minor PR reports `version-update:semver-minor` and is auto-merged;
+      # a major reports `version-update:semver-major` and is skipped. A null
+      # `update-type` (rare grouped edge case) is also skipped - safe default.
+      - name: Enable auto-merge for patch/minor updates
+        if: contains(fromJSON('["version-update:semver-patch","version-update:semver-minor"]'), steps.metadata.outputs.update-type)
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

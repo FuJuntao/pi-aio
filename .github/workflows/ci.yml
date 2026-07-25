@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   check:
-    name: Lint / Typecheck / Format / Build / Test
+    name: CI
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
