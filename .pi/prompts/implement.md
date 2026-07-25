@@ -1,5 +1,5 @@
 ---
-description: Implement a ready-for-agent issue end-to-end: validate, branch, build, check, PR
+description: "Implement a ready-for-agent issue end-to-end: validate, branch, build, check, PR"
 argument-hint: "[issue-number-or-url]"
 ---
 
