@@ -58,7 +58,7 @@ Run from the repo root:
 ├── .changeset/          # changesets versioning config
 ├── .github/workflows/   # CI
 ├── package.json         # workspace root (private, shared scripts & devDeps)
-├── tsconfig.json        # shared base TS config — also the project-references solution root
+├── tsconfig.json        # shared base TS config & project-references solution root
 ├── .oxlintrc.json       # oxlint config (type-aware)
 └── .oxfmtrc.json        # oxfmt config
 ```
