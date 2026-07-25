@@ -7,7 +7,7 @@ argument-hint: "[topic]"
 
 Plan work **before** implementing. Gather context, quiz the user until you share an understanding, then publish a focused GitHub issue that `/implement` can pick up.
 
-**Topic:** ${1:-<ask the user what to plan>}
+**Topic:** $@
 
 ## Process
 
