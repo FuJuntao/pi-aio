@@ -15,27 +15,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        # Runs before setup-node: its `cache: pnpm` invokes `pnpm` to resolve the
+        # store path during its own step, so pnpm must be on PATH first. corepack
+        # can't fill this role here since it needs Node first (chicken-and-egg).
+        # pnpm version is read from the `packageManager` field in package.json.
+        uses: pnpm/action-setup@v5
 
       - name: Set up Node.js (from .nvmrc)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
-
-      - name: Enable pnpm via corepack
-        run: corepack enable pnpm
-
-      - name: Resolve pnpm store directory
-        id: pnpm-store
-        run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore pnpm store cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
