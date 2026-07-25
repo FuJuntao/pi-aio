@@ -17,7 +17,7 @@
     "lint": "oxlint --no-error-on-unmatched-pattern",
     "release": "pnpm build && changeset publish",
     "test": "pnpm -r --if-present test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --build",
     "version": "changeset version && pnpm install --lockfile-only"
   },
   "devDependencies": {

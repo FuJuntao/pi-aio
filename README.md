@@ -43,7 +43,7 @@ Run from the repo root:
 | `pnpm lint`         | Type-aware lint (oxlint).                        |
 | `pnpm format`       | Format all files in place (oxfmt).               |
 | `pnpm format:check` | Check formatting without writing (used by CI).   |
-| `pnpm typecheck`    | Type-check (TS 7 `tsc --noEmit`).                |
+| `pnpm typecheck`    | Type-check (project references, `tsc --build`).  |
 | `pnpm build`        | Build every package (`pnpm -r build`).           |
 | `pnpm test`         | Test every package (`pnpm -r test`).             |
 | `pnpm changeset`    | Add a changeset (describe a user-facing change). |
@@ -58,33 +58,47 @@ Run from the repo root:
 ├── .changeset/          # changesets versioning config
 ├── .github/workflows/   # CI
 ├── package.json         # workspace root (private, shared scripts & devDeps)
-├── tsconfig.json        # shared base TS config — packages extend this
+├── tsconfig.json        # shared base TS config & project-references solution root
 ├── .oxlintrc.json       # oxlint config (type-aware)
 └── .oxfmtrc.json        # oxfmt config
 ```
 
 ## Adding a package
 
-Each `packages/<name>`:
+Each `packages/<name>` is a TypeScript **project reference** of the root
+`tsconfig.json`, so the root `pnpm typecheck` (`tsc --build`) type-checks it.
 
-- has its own `package.json` (`"type": "module"`, `engines.node: ">=24"`),
-- extends the root base config in its `tsconfig.json`:
+1. Create `packages/<name>` with its own `package.json` (`"type": "module"`,
+   `engines.node: ">=24"`).
+2. Add a `tsconfig.json` that extends the root base config and is `composite`
+   so it can be referenced:
 
-  ```json
-  {
-    "extends": "../../tsconfig.json",
-    "compilerOptions": {
-      "outDir": "dist",
-      "rootDir": "src",
-      "types": ["node"]
-    },
-    "include": ["src/**/*.ts"]
-  }
-  ```
+   ```json
+   {
+     "extends": "../../tsconfig.json",
+     "compilerOptions": {
+       "composite": true,
+       "types": ["node"]
+     },
+     "include": ["src/**/*.ts"]
+   }
+   ```
 
-  and depends on `@types/node` in its own `devDependencies` (pnpm's isolated
-  `node_modules` does not expose the root's copy to packages).
+   `include` is required: the root base sets `files: []` (so the root solution
+   config does not pull in every `.ts` in the repo), and that empty list is
+   inherited - so each package must override it with `include` to compile its
+   `src`. (`outDir`/`rootDir` are omitted because the base's `noEmit` makes them
+   no-ops.) Depend on `@types/node` in the package's own `devDependencies` -
+   pnpm's isolated `node_modules` does not expose the root's copy to packages.
+
+3. Register the package in the root `tsconfig.json` by adding a `references`
+   entry (create the `references` array when adding the first package):
+
+   ```json
+   { "path": "packages/<name>" }
+   ```
 
 The base config enables `verbatimModuleSyntax` and `erasableSyntaxOnly`, so code
 must use `import type` for type-only imports and stick to erasable TypeScript
-syntax.
+syntax. `tsc --build` type-checks every referenced package; with `noEmit`
+retained it emits only `.tsbuildinfo` (already gitignored), no `.js`/`.d.ts`.
