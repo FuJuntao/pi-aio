@@ -1,12 +1,5 @@
 {
   "$schema": "https://www.schemastore.org/tsconfig",
-  "//": [
-    "Single root TS config for the @fujuntao/pi-aio package.",
-    "No `files`/`include`: tsc defaults to every `.ts`/`.d.ts` under the repo",
-    "root (excluding node_modules), so `extensions/**/*.ts` is type-checked as",
-    "soon as it exists. A root `global.d.ts` keeps the program non-empty while",
-    "`extensions/` is empty; `@types/node` provides the `node:*` ambient types."
-  ],
   "extends": ["@tsconfig/node-lts/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
   "compilerOptions": {
     "verbatimModuleSyntax": true,
