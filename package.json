@@ -39,6 +39,9 @@
     "oxlint-tsgolint": "^7.0.2001",
     "typescript": "^7.0.2"
   },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "engines": {
     "node": ">=24"
   },

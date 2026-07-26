@@ -3,3 +3,14 @@
 # `.npmrc` `engine-strict=true` entry is kept for npm/corepack compatibility.
 # No `packages:` list: this repo is a single root-level package, not a workspace.
 engineStrict: true
+# `@earendil-works/pi-coding-agent` is a peer dependency (added by the notify
+# extension) and is auto-installed for type-checking. Its transitive deps
+# `@google/genai` and `protobufjs` ship build scripts that pnpm 11 refuses to run
+# by default (ERR_PNPM_IGNORED_BUILDS), which fails `pnpm install` and the
+# pre-script deps check. We never execute them: this workspace's copy is for
+# type-checking only - at runtime pi resolves the package from its own bundled
+# core - so their build output is irrelevant. `false` marks them as explicitly
+# ignored so installs and `pnpm run` checks stay green.
+allowBuilds:
+  "@google/genai": false
+  protobufjs: false
