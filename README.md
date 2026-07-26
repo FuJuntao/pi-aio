@@ -38,17 +38,6 @@ corepack enable pnpm    # one-time: activate corepack's pnpm shim
 pnpm install            # install dependencies
 ```
 
-## Installing the package
-
-Install `@fujuntao/pi-aio` into your pi environment with:
-
-```sh
-pi install npm:@fujuntao/pi-aio
-```
-
-`pi install` accepts npm, git, and local-path sources and writes to user or
-project settings; see `pi install --help` for details.
-
 ## Scripts
 
 Run from the repo root:

@@ -8,6 +8,17 @@ Toolchain, scripts, and adding resources are covered in the [README](README.md)
 and linked from here rather than duplicated; this document owns the workflow and
 standards narrative.
 
+## Installing the package
+
+Install `@fujuntao/pi-aio` into your pi environment with:
+
+```sh
+pi install npm:@fujuntao/pi-aio
+```
+
+`pi install` accepts npm, git, and local-path sources and writes to user or
+project settings; see `pi install --help` for details.
+
 ## Dev setup
 
 The full toolchain and prerequisites live in the
