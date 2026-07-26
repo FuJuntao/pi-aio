@@ -1,12 +1,8 @@
 # Contributing to pi-extensions
 
 Thanks for contributing! This guide is the single source for the contribution
-workflow and coding standards. Read it alone and you will know how to set up,
-write, commit, and submit a CI-passing PR.
-
-Toolchain, scripts, and adding resources are covered in the [README](README.md)
-and linked from here rather than duplicated; this document owns the workflow and
-standards narrative.
+workflow, coding standards, and repo maintenance. Read it alone and you will know
+how to set up, write, commit, and submit a CI-passing PR.
 
 ## Installing the package
 
@@ -21,17 +17,69 @@ project settings; see `pi install --help` for details.
 
 ## Dev setup
 
-The full toolchain and prerequisites live in the
-[README](README.md#toolchain). In short:
+| Concern              | Choice                                                         |
+| -------------------- | -------------------------------------------------------------- |
+| Runtime              | Node.js 24 (`.nvmrc`)                                          |
+| Package manager      | pnpm, pinned via `packageManager` (corepack)                   |
+| Package model        | Single root-level publishable package (`@fujuntao/pi-aio`)     |
+| Versioning / release | Changesets                                                     |
+| TypeScript           | TS 7 (`typescript`, tsgo-based `tsc`)                          |
+| Lint                 | oxlint (type-aware via `oxlint-tsgolint`, correctness-focused) |
+| Format               | oxfmt                                                          |
+| CI                   | GitHub Actions                                                 |
 
-- **Node.js >= 24** - `nvm use` reads `.nvmrc`. `engine-strict` is on, so
-  installing on an older Node fails fast.
-- **pnpm via corepack** - `corepack enable pnpm` once; the `packageManager`
-  field pins the exact version.
-- **Install** - `pnpm install`.
+**Prerequisites:**
 
-See [Prerequisites](README.md#prerequisites) and
-[Getting started](README.md#getting-started) for details.
+- **Node.js ≥ 24** - use `nvm use` (reads `.nvmrc`).
+- **pnpm via corepack** - run `corepack enable pnpm` once. The `packageManager`
+  field in `package.json` pins the exact pnpm version; corepack provisions it.
+
+`engine-strict` is enforced, so installing on an unsupported Node version fails
+fast instead of producing a broken install.
+
+**Getting started:**
+
+```sh
+nvm use                 # select Node 24
+corepack enable pnpm    # one-time: activate corepack's pnpm shim
+pnpm install            # install dependencies
+```
+
+## Layout
+
+```
+.
+├── extensions/         # pi extensions (.ts/.js) - type-checked by tsc
+├── skills/             # pi skills (SKILL.md folders / top-level .md)
+├── prompts/            # pi prompt templates (.md)
+├── themes/             # pi themes (.json)
+├── .pi/prompts/        # this repo's private dev-workflow templates (not packaged)
+├── .changeset/         # changesets versioning config
+├── .github/workflows/  # CI
+├── package.json        # @fujuntao/pi-aio manifest (pi key, files allowlist, scripts)
+├── tsconfig.json       # single root TS config (noEmit; type-checks extensions/)
+├── global.d.ts         # placeholder input keeping tsc green while extensions/ is empty
+├── .oxlintrc.json      # oxlint config (type-aware)
+└── .oxfmtrc.json       # oxfmt config
+```
+
+## Scripts
+
+Run from the repo root:
+
+| Command             | What it does                                     |
+| ------------------- | ------------------------------------------------ |
+| `pnpm lint`         | Type-aware lint (oxlint).                        |
+| `pnpm format`       | Format all files in place (oxfmt).               |
+| `pnpm format:check` | Check formatting without writing (used by CI).   |
+| `pnpm typecheck`    | Type-check (`tsc --noEmit`).                     |
+| `pnpm test`         | No-op placeholder (no tests yet).                |
+| `pnpm changeset`    | Add a changeset (describe a user-facing change). |
+| `pnpm version`      | Apply changesets -> bump versions & changelogs.  |
+| `pnpm release`      | Publish the package.                             |
+
+There is no `build` script: pi compiles `.ts` extensions at load time, so the
+package ships source directly and `tsc` is type-check-only (`noEmit`).
 
 ## Coding standards
 
@@ -86,8 +134,98 @@ pnpm format:check   # verify without writing (CI)
 
 Node.js **>= 24** (`.nvmrc`). `engine-strict` is enforced in both
 [`.npmrc`](.npmrc) and [`pnpm-workspace.yaml`](pnpm-workspace.yaml), so an
-install on an unsupported Node version fails immediately rather than producing a
-broken environment. Always `nvm use` before installing.
+install on an unsupported Node version fails immediately rather than producing
+a broken environment. Always `nvm use` before installing.
+
+## Adding resources
+
+Resources live in the four conventional directories (`extensions/`, `skills/`,
+`prompts/`, `themes/`), also declared explicitly in the `pi` manifest in
+`package.json`. Add a file or folder to the matching directory and pi picks it
+up automatically when the package is installed.
+
+### Extension
+
+Drop a `.ts` (or `.js`) file in `extensions/`. It is type-checked by
+`pnpm typecheck` (`tsc --noEmit`) and loaded by pi at runtime:
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", async (_event, ctx) => {
+    ctx.ui.notify("Hello from my-extension!", "info");
+  });
+
+  pi.registerTool({
+    name: "greet",
+    label: "Greet",
+    description: "Greet someone by name",
+    parameters: Type.Object({ name: Type.String() }),
+    async execute(_toolCallId, params) {
+      return {
+        content: [{ type: "text", text: `Hello, ${params.name}!` }],
+        details: {},
+      };
+    },
+  });
+}
+```
+
+See the pi [extensions docs](https://github.com/earendil-works/pi) for the full
+`ExtensionAPI`, events, and tool/command registration.
+
+### Skill
+
+Add a `skills/<name>/SKILL.md` folder (folder skill) or a top-level
+`skills/<name>.md` file. Pi discovers skills recursively.
+
+### Prompt template
+
+Add a `prompts/<name>.md` file.
+
+### Theme
+
+Add a `themes/<name>.json` file.
+
+### pi-core peer dependencies
+
+Pi bundles its core packages and provides them at load time. If an extension
+imports any of `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`,
+`@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, or `typebox`, add
+it to **`peerDependencies`** at `"*"` - and do **not** bundle it. Add the first
+one lazily, only when an extension actually imports it:
+
+```json
+{
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
+```
+
+### Depending on other pi packages
+
+To bundle resources from _another_ pi package, add it to both `dependencies`
+and `bundledDependencies`, then reference its resources through `node_modules/`
+paths in the `pi` manifest:
+
+```json
+{
+  "dependencies": {
+    "some-other-pi-pkg": "^1.0.0"
+  },
+  "bundledDependencies": ["some-other-pi-pkg"],
+  "pi": {
+    "extensions": ["./extensions", "node_modules/some-other-pi-pkg/extensions"]
+  }
+}
+```
+
+Pi loads packages with separate module roots, so bundled packages do not collide
+or share modules.
 
 ## Conventional commits
 
@@ -147,12 +285,4 @@ pnpm test
 ```
 
 These mirror the [CI workflow](.github/workflows/ci.yml). See
-[Scripts](README.md#scripts) for what each does.
-
-## Adding resources
-
-Resources (extensions, skills, prompt templates, themes) live in the
-conventional root directories declared in the `pi` manifest. See
-[Adding resources](README.md#adding-resources) in the README for where to place
-each kind, when to add pi-core `peerDependencies`, and the
-`bundledDependencies` pattern for depending on other pi packages.
+[Scripts](#scripts) for what each does.
