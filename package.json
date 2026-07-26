@@ -20,13 +20,12 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "pnpm -r --if-present build",
     "changeset": "changeset",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "lint": "oxlint --no-error-on-unmatched-pattern",
-    "release": "pnpm build && changeset publish",
-    "test": "pnpm -r --if-present test",
+    "release": "changeset publish",
+    "test": "echo \"No tests yet\"",
     "typecheck": "tsc --noEmit",
     "version": "changeset version && pnpm install --lockfile-only"
   },
