@@ -4,17 +4,6 @@ Thanks for contributing! This guide is the single source for the contribution
 workflow, coding standards, and repo maintenance. Read it alone and you will know
 how to set up, write, commit, and submit a CI-passing PR.
 
-## Installing the package
-
-Install `@fujuntao/pi-aio` into your pi environment with:
-
-```sh
-pi install npm:@fujuntao/pi-aio
-```
-
-`pi install` accepts npm, git, and local-path sources and writes to user or
-project settings; see `pi install --help` for details.
-
 ## Dev setup
 
 | Concern              | Choice                                                         |
