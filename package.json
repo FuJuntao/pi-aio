@@ -1,29 +1,39 @@
 {
-  "name": "pi-extensions",
+  "name": "@fujuntao/pi-aio",
   "version": "0.0.0",
-  "private": true,
-  "description": "Community extensions for the pi coding agent.",
+  "description": "All-in-one pi package bundling extensions, skills, prompt templates, and themes for the pi coding agent.",
+  "keywords": [
+    "pi-package"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/FuJuntao/pi-extensions.git"
   },
+  "files": [
+    "extensions/",
+    "skills/",
+    "prompts/",
+    "themes/",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "scripts": {
-    "build": "pnpm -r --if-present build",
     "changeset": "changeset",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "lint": "oxlint --no-error-on-unmatched-pattern",
-    "release": "pnpm build && changeset publish",
-    "test": "pnpm -r --if-present test",
-    "typecheck": "tsc --build",
+    "release": "changeset publish",
+    "test": "echo \"No tests yet\"",
+    "typecheck": "tsc --noEmit",
     "version": "changeset version && pnpm install --lockfile-only"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
     "@tsconfig/node-lts": "^24.0.0",
     "@tsconfig/strictest": "^2.0.8",
+    "@types/node": "^26.1.1",
     "oxfmt": "^0.60.0",
     "oxlint": "^1.75.0",
     "oxlint-tsgolint": "^7.0.2001",
@@ -32,5 +42,19 @@
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "pnpm@11.17.0"
+  "packageManager": "pnpm@11.17.0",
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "themes": [
+      "./themes"
+    ]
+  }
 }

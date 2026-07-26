@@ -1,16 +1,10 @@
 {
   "$schema": "https://www.schemastore.org/tsconfig",
-  "//": [
-    "Shared base config for every package under `packages/`.",
-    "Packages extend this file and set their own `include`/`outDir`.",
-    "`files: []` keeps the root type-check green while no packages exist.",
-    "`types: [\"node\"]` is left to each package, which must depend on `@types/node`."
-  ],
   "extends": ["@tsconfig/node-lts/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
   "compilerOptions": {
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
-    "noEmit": true
-  },
-  "files": []
+    "noEmit": true,
+    "types": ["node"]
+  }
 }

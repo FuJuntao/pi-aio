@@ -1,12 +1,9 @@
 # Dependabot version-update configuration.
 #
 # There is no `pnpm` package-ecosystem value: `npm` is correct for JavaScript
-# here. Dependabot detects `pnpm-lock.yaml` and updates it using pnpm internally
-# (pnpm-workspace catalog support is GA). Configure `npm` only at `directory:
-# "/"` - where `pnpm-workspace.yaml` and `pnpm-lock.yaml` live - which covers the
-# workspace root and all `packages/*` manifests. Per-`packages/*` subdirectory
-# entries are intentionally omitted: they error with "no change" because the
-# lockfile is already handled at the root.
+# here. Dependabot detects `pnpm-lock.yaml` and updates it using pnpm internally.
+# Configure `npm` only at `directory: "/"` - where `package.json` and
+# `pnpm-lock.yaml` live - which covers the single root package.
 #
 # Patch + minor updates are grouped into one PR per ecosystem so they can be
 # auto-merged (see `.github/workflows/dependabot-automerge.yml`); major updates

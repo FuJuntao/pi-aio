@@ -55,7 +55,7 @@ Implement the issue's acceptance criteria. Conventional commits (`type(scope): s
 
 ## 5. Checks
 
-All applicable repo checks must be green before a PR exists: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, `pnpm build`, `pnpm test`. Fix failures as you go (`pnpm format` for formatting). If a failure cannot be fixed, stop and report - never open a red PR.
+All applicable repo checks must be green before a PR exists: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, `pnpm test`. Fix failures as you go (`pnpm format` for formatting). If a failure cannot be fixed, stop and report - never open a red PR.
 
 ## 6. PR
 
