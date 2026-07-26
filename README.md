@@ -1,8 +1,12 @@
 # pi-extensions
 
-Community extensions for the [pi](https://github.com/earendil-works/pi) coding agent.
+A single, root-level [pi](https://github.com/earendil-works/pi) package -
+`@fujuntao/pi-aio` - bundling extensions, skills, prompt templates, and themes
+for the pi coding agent. Pi loads `.ts` extensions directly, so this package
+ships source (`.ts`/`.md`/`.json`) with no build step.
 
-This repository is a pnpm monorepo. Extension packages live under `packages/`.
+> The repo's own dev-workflow prompt templates live in `.pi/prompts/` and are
+> **not** part of the published package.
 
 ## Toolchain
 
@@ -10,7 +14,7 @@ This repository is a pnpm monorepo. Extension packages live under `packages/`.
 | -------------------- | -------------------------------------------------------------- |
 | Runtime              | Node.js 24 (`.nvmrc`)                                          |
 | Package manager      | pnpm, pinned via `packageManager` (corepack)                   |
-| Workspaces           | pnpm workspaces — `packages/*`                                 |
+| Package model        | Single root-level publishable package (`@fujuntao/pi-aio`)     |
 | Versioning / release | Changesets                                                     |
 | TypeScript           | TS 7 (`typescript`, tsgo-based `tsc`)                          |
 | Lint                 | oxlint (type-aware via `oxlint-tsgolint`, correctness-focused) |
@@ -19,8 +23,8 @@ This repository is a pnpm monorepo. Extension packages live under `packages/`.
 
 ## Prerequisites
 
-- **Node.js ≥ 24** — use `nvm use` (reads `.nvmrc`).
-- **pnpm via corepack** — run `corepack enable pnpm` once. The `packageManager`
+- **Node.js ≥ 24** - use `nvm use` (reads `.nvmrc`).
+- **pnpm via corepack** - run `corepack enable pnpm` once. The `packageManager`
   field in `package.json` pins the exact pnpm version; corepack provisions it.
 
 `engine-strict` is enforced, so installing on an unsupported Node version fails
@@ -34,6 +38,17 @@ corepack enable pnpm    # one-time: activate corepack's pnpm shim
 pnpm install            # install dependencies
 ```
 
+## Installing the package
+
+Install `@fujuntao/pi-aio` into your pi environment with:
+
+```sh
+pi install npm:@fujuntao/pi-aio
+```
+
+`pi install` accepts npm, git, and local-path sources and writes to user or
+project settings; see `pi install --help` for details.
+
 ## Scripts
 
 Run from the repo root:
@@ -43,62 +58,119 @@ Run from the repo root:
 | `pnpm lint`         | Type-aware lint (oxlint).                        |
 | `pnpm format`       | Format all files in place (oxfmt).               |
 | `pnpm format:check` | Check formatting without writing (used by CI).   |
-| `pnpm typecheck`    | Type-check (project references, `tsc --build`).  |
-| `pnpm build`        | Build every package (`pnpm -r build`).           |
-| `pnpm test`         | Test every package (`pnpm -r test`).             |
+| `pnpm typecheck`    | Type-check (`tsc --noEmit`).                     |
+| `pnpm test`         | No-op placeholder (no tests yet).                |
 | `pnpm changeset`    | Add a changeset (describe a user-facing change). |
-| `pnpm version`      | Apply changesets → bump versions & changelogs.   |
-| `pnpm release`      | Build and publish changed packages.              |
+| `pnpm version`      | Apply changesets -> bump versions & changelogs.  |
+| `pnpm release`      | Publish the package.                             |
+
+There is no `build` script: pi compiles `.ts` extensions at load time, so the
+package ships source directly and `tsc` is type-check-only (`noEmit`).
 
 ## Layout
 
 ```
 .
-├── packages/            # extension packages (one directory per package)
-├── .changeset/          # changesets versioning config
-├── .github/workflows/   # CI
-├── package.json         # workspace root (private, shared scripts & devDeps)
-├── tsconfig.json        # shared base TS config & project-references solution root
-├── .oxlintrc.json       # oxlint config (type-aware)
-└── .oxfmtrc.json        # oxfmt config
+├── extensions/         # pi extensions (.ts/.js) - type-checked by tsc
+├── skills/             # pi skills (SKILL.md folders / top-level .md)
+├── prompts/            # pi prompt templates (.md)
+├── themes/             # pi themes (.json)
+├── .pi/prompts/        # this repo's private dev-workflow templates (not packaged)
+├── .changeset/         # changesets versioning config
+├── .github/workflows/  # CI
+├── package.json        # @fujuntao/pi-aio manifest (pi key, files allowlist, scripts)
+├── tsconfig.json       # single root TS config (noEmit; type-checks extensions/)
+├── global.d.ts         # placeholder input keeping tsc green while extensions/ is empty
+├── .oxlintrc.json      # oxlint config (type-aware)
+└── .oxfmtrc.json       # oxfmt config
 ```
 
-## Adding a package
+## Adding resources
 
-Each `packages/<name>` is a TypeScript **project reference** of the root
-`tsconfig.json`, so the root `pnpm typecheck` (`tsc --build`) type-checks it.
+Resources live in the four conventional directories (`extensions/`, `skills/`,
+`prompts/`, `themes/`), also declared explicitly in the `pi` manifest in
+`package.json`. Add a file or folder to the matching directory and pi picks it
+up automatically when the package is installed.
 
-1. Create `packages/<name>` with its own `package.json` (`"type": "module"`,
-   `engines.node: ">=24"`).
-2. Add a `tsconfig.json` that extends the root base config and is `composite`
-   so it can be referenced:
+### Extension
 
-   ```json
-   {
-     "extends": "../../tsconfig.json",
-     "compilerOptions": {
-       "composite": true,
-       "types": ["node"]
-     },
-     "include": ["src/**/*.ts"]
-   }
-   ```
+Drop a `.ts` (or `.js`) file in `extensions/`. It is type-checked by
+`pnpm typecheck` (`tsc --noEmit`) and loaded by pi at runtime:
 
-   `include` is required: the root base sets `files: []` (so the root solution
-   config does not pull in every `.ts` in the repo), and that empty list is
-   inherited - so each package must override it with `include` to compile its
-   `src`. (`outDir`/`rootDir` are omitted because the base's `noEmit` makes them
-   no-ops.) Depend on `@types/node` in the package's own `devDependencies` -
-   pnpm's isolated `node_modules` does not expose the root's copy to packages.
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
-3. Register the package in the root `tsconfig.json` by adding a `references`
-   entry (create the `references` array when adding the first package):
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", async (_event, ctx) => {
+    ctx.ui.notify("Hello from my-extension!", "info");
+  });
 
-   ```json
-   { "path": "packages/<name>" }
-   ```
+  pi.registerTool({
+    name: "greet",
+    label: "Greet",
+    description: "Greet someone by name",
+    parameters: Type.Object({ name: Type.String() }),
+    async execute(_toolCallId, params) {
+      return {
+        content: [{ type: "text", text: `Hello, ${params.name}!` }],
+        details: {},
+      };
+    },
+  });
+}
+```
 
-The base config enables `verbatimModuleSyntax` and `erasableSyntaxOnly`, so code
-must use `import type` for type-only imports and stick to erasable TypeScript
-syntax. `tsc --build` type-checks every referenced package; with `noEmit`
-retained it emits only `.tsbuildinfo` (already gitignored), no `.js`/`.d.ts`.
+See the pi [extensions docs](https://github.com/earendil-works/pi) for the full
+`ExtensionAPI`, events, and tool/command registration.
+
+### Skill
+
+Add a `skills/<name>/SKILL.md` folder (folder skill) or a top-level
+`skills/<name>.md` file. Pi discovers skills recursively.
+
+### Prompt template
+
+Add a `prompts/<name>.md` file.
+
+### Theme
+
+Add a `themes/<name>.json` file.
+
+### pi-core peer dependencies
+
+Pi bundles its core packages and provides them at load time. If an extension
+imports any of `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`,
+`@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, or `typebox`, add
+it to **`peerDependencies`** at `"*"` - and do **not** bundle it. Add the first
+one lazily, only when an extension actually imports it:
+
+```json
+{
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
+```
+
+### Depending on other pi packages
+
+To bundle resources from _another_ pi package, add it to both `dependencies`
+and `bundledDependencies`, then reference its resources through `node_modules/`
+paths in the `pi` manifest:
+
+```json
+{
+  "dependencies": {
+    "some-other-pi-pkg": "^1.0.0"
+  },
+  "bundledDependencies": ["some-other-pi-pkg"],
+  "pi": {
+    "extensions": ["./extensions", "node_modules/some-other-pi-pkg/extensions"]
+  }
+}
+```
+
+Pi loads packages with separate module roots, so bundled packages do not collide
+or share modules.

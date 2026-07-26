@@ -4,7 +4,7 @@ Thanks for contributing! This guide is the single source for the contribution
 workflow and coding standards. Read it alone and you will know how to set up,
 write, commit, and submit a CI-passing PR.
 
-Toolchain, scripts, and adding a package are covered in the [README](README.md)
+Toolchain, scripts, and adding resources are covered in the [README](README.md)
 and linked from here rather than duplicated; this document owns the workflow and
 standards narrative.
 
@@ -26,8 +26,8 @@ See [Prerequisites](README.md#prerequisites) and
 
 ### TypeScript
 
-Every package extends the shared base [`tsconfig.json`](tsconfig.json), which
-enables two strict settings that shape how you write TypeScript:
+The root [`tsconfig.json`](tsconfig.json) enables two strict settings
+that shape how you write TypeScript:
 
 - **`verbatimModuleSyntax`** - type-only imports must be marked so they can be
   elided. Use `import type` (or the inline `type` modifier) for anything used
@@ -132,16 +132,16 @@ Open PRs against `main` and follow [`.github/pull_request_template.md`](.github/
 pnpm lint
 pnpm format:check
 pnpm typecheck
-pnpm build
 pnpm test
 ```
 
 These mirror the [CI workflow](.github/workflows/ci.yml). See
 [Scripts](README.md#scripts) for what each does.
 
-## Adding a package
+## Adding resources
 
-Extension packages live under `packages/`. Each has its own `package.json`
-(`"type": "module"`, `engines.node: ">=24"`), extends the root base
-`tsconfig.json`, and depends on `@types/node` in its own `devDependencies`. See
-[Adding a package](README.md#adding-a-package) in the README for the full setup.
+Resources (extensions, skills, prompt templates, themes) live in the
+conventional root directories declared in the `pi` manifest. See
+[Adding resources](README.md#adding-resources) in the README for where to place
+each kind, when to add pi-core `peerDependencies`, and the
+`bundledDependencies` pattern for depending on other pi packages.
