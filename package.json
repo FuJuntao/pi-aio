@@ -12,6 +12,8 @@
   },
   "files": [
     "extensions/",
+    "!extensions/**/*.test.ts",
+    "!extensions/**/*.spec.ts",
     "skills/",
     "prompts/",
     "themes/",
