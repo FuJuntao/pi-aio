@@ -7,7 +7,7 @@ import {
   chooseTerminalKind,
   desktopSessionPresent,
   isOverSsh,
-} from "../../extensions/notify/select.ts";
+} from "./select.ts";
 
 const env = (entries: Record<string, string>): Record<string, string | undefined> => entries;
 

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadConfig } from "../../extensions/notify/config.ts";
+import { loadConfig } from "./config.ts";
 
 interface Setup {
   readonly globalDir: string;

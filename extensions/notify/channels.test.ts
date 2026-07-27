@@ -14,7 +14,7 @@ import {
   createTerminalNotifierChannel,
   quoteAppleScript,
   windowsToastScript,
-} from "../../extensions/notify/channels.ts";
+} from "./channels.ts";
 
 interface FakeRecorder {
   readonly deps: ChannelDeps;
