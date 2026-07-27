@@ -25,7 +25,7 @@
     "format:check": "oxfmt --check",
     "lint": "oxlint --no-error-on-unmatched-pattern",
     "release": "changeset publish",
-    "test": "echo \"No tests yet\"",
+    "test": "node --test",
     "typecheck": "tsc --noEmit",
     "version": "changeset version && pnpm install --lockfile-only"
   },

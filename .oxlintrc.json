@@ -21,5 +21,13 @@
   "options": {
     "typeAware": true
   },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.spec.ts"],
+      "rules": {
+        "typescript/no-floating-promises": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/coverage/**", "**/*.d.ts"]
 }

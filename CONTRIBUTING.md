@@ -62,7 +62,7 @@ Run from the repo root:
 | `pnpm format`       | Format all files in place (oxfmt).               |
 | `pnpm format:check` | Check formatting without writing (used by CI).   |
 | `pnpm typecheck`    | Type-check (`tsc --noEmit`).                     |
-| `pnpm test`         | No-op placeholder (no tests yet).                |
+| `pnpm test`         | Run unit tests (`node --test`).                  |
 | `pnpm changeset`    | Add a changeset (describe a user-facing change). |
 | `pnpm version`      | Apply changesets -> bump versions & changelogs.  |
 | `pnpm release`      | Publish the package.                             |
