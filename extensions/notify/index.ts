@@ -5,21 +5,29 @@
  * and is waiting for input (`agent_settled`) and when a tool errors
  * (`tool_result` with `isError`). It auto-selects a native desktop notification
  * when local, or a terminal-protocol notification (OSC 777/9/99) over SSH or
- * when no desktop binary is present - plus a bell and window-title cue. A 10s
- * minimum-duration threshold keeps quick turns quiet.
+ * when no desktop binary is present - plus a bell and window-title cue.
+ *
+ * Gating: a "settled" notification fires only when the terminal is **not
+ * focused** (the user has switched away). Focus is tracked via OSC 1004 focus
+ * events in interactive (TUI) mode. If focus cannot be detected - the terminal
+ * doesn't speak OSC 1004, or the session is non-interactive - the notification
+ * fires regardless (better to over-notify than to swallow a "done" signal).
+ * Tool errors are never focus-gated; they always surface. There is no duration
+ * threshold.
  *
  * Config: a single `enabled` field in `~/.pi/agent/notify.json` (global) merged
  * with `<cwd>/.pi/notify.json` (project wins). Absent config defaults to
  * enabled.
  *
- * Pure routing/escaping logic lives in `select.ts` and `channels.ts`; this
- * module owns the impure seams (spawning, probing, clock) and the event wiring.
- * `NotifyDeps` lets tests inject fakes for those seams.
+ * Pure routing/escaping logic lives in `select.ts`, `channels.ts`, and
+ * `focus.ts`; this module owns the impure seams (spawning, probing, writing OSC,
+ * the input listener) and the event wiring. `NotifyDeps` lets tests inject
+ * fakes for those seams.
  *
  * Inspired by pi's `examples/extensions/notify.ts`, rewritten to fire on
  * `agent_settled` (not `agent_end`, which fires prematurely during auto-retry /
- * auto-compact-and-retry) and to add macOS/Linux native notifications plus
- * min-duration gating.
+ * auto-compact-and-retry) and to gate on terminal focus instead of a fixed
+ * duration.
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -38,17 +46,22 @@ import {
   createChannels,
 } from "./channels.ts";
 import { type LoadedConfig, loadConfig } from "./config.ts";
+import {
+  FOCUS_REPORT_DISABLE,
+  FOCUS_REPORT_ENABLE,
+  INITIAL_FOCUS_STATE,
+  type FocusState,
+  stepFocus,
+} from "./focus.ts";
 import { choosePopupKind } from "./select.ts";
-
-/** Minimum agent-run duration (ms) before a "settled" notification fires. */
-export const MIN_DURATION_MS = 10_000;
 
 /** Impure seams. Tests inject fakes; production uses the real defaults. */
 export interface NotifyDeps {
-  readonly now: () => number;
   readonly loadConfig: (cwd: string) => LoadedConfig;
   readonly pickPopupChannel: () => NotifyChannel | undefined;
   readonly ringBell: () => void;
+  /** Write a raw OSC control sequence to the terminal (e.g. focus-reporting enable). */
+  readonly writeOsc: (data: string) => void;
 }
 
 // --- Real impure implementations ------------------------------------------
@@ -93,16 +106,20 @@ function realRingBell(): void {
   }
 }
 
+function realWriteOsc(data: string): void {
+  stdout.write(data);
+}
+
 function realLoadConfig(cwd: string): LoadedConfig {
   return loadConfig({ cwd, globalDir: getAgentDir(), configDirName: CONFIG_DIR_NAME });
 }
 
 function defaultDeps(): NotifyDeps {
   return {
-    now: () => Date.now(),
     loadConfig: realLoadConfig,
     pickPopupChannel: realPickPopupChannel,
     ringBell: realRingBell,
+    writeOsc: realWriteOsc,
   };
 }
 
@@ -111,20 +128,21 @@ function defaultDeps(): NotifyDeps {
 /** Inputs to `shouldNotifySettled`. */
 export interface ShouldNotifySettledInput {
   readonly enabled: boolean;
-  readonly startedAt: number | undefined;
-  readonly now: number;
-  readonly minDurationMs: number;
+  /** Whether the terminal's focus state is known (OSC 1004 observed at least once). */
+  readonly focusKnown: boolean;
+  /** Whether the terminal is currently focused. */
+  readonly focused: boolean;
 }
 
 /**
  * Whether a "settled" notification should fire. Requires the extension to be
- * enabled, a run to have started, and the run to have lasted at least
- * `minDurationMs`. Pure over its inputs.
+ * enabled, and either the focus state to be unknown (can't detect -> notify) or
+ * the terminal to be unfocused. Pure over its inputs.
  */
 export function shouldNotifySettled(input: ShouldNotifySettledInput): boolean {
   if (!input.enabled) return false;
-  if (input.startedAt === undefined) return false;
-  return input.now - input.startedAt >= input.minDurationMs;
+  if (input.focusKnown && input.focused) return false;
+  return true;
 }
 
 // --- Delivery -------------------------------------------------------------
@@ -151,13 +169,15 @@ export default function notifyExtension(
 ): void {
   const base = defaultDeps();
   const d: NotifyDeps = {
-    now: deps?.now ?? base.now,
     loadConfig: deps?.loadConfig ?? base.loadConfig,
     pickPopupChannel: deps?.pickPopupChannel ?? base.pickPopupChannel,
     ringBell: deps?.ringBell ?? base.ringBell,
+    writeOsc: deps?.writeOsc ?? base.writeOsc,
   };
   let enabled = true;
-  let runStartTime: number | undefined;
+  let focusState: FocusState = INITIAL_FOCUS_STATE;
+  let unsubscribeInput: (() => void) | undefined;
+  let focusReportingOn = false;
 
   pi.on("session_start", (_event, ctx) => {
     const config = d.loadConfig(ctx.cwd);
@@ -165,25 +185,42 @@ export default function notifyExtension(
     if (config.warning) {
       ctx.ui.notify(config.warning, "warning");
     }
+    // Focus detection only works in interactive TTY mode, where pi feeds raw
+    // terminal input to onTerminalInput. Elsewhere focusState stays at its
+    // initial "unknown" value, which means "notify" per the gating rule.
+    if (ctx.mode !== "tui") return;
+    if (unsubscribeInput) {
+      unsubscribeInput();
+      unsubscribeInput = undefined;
+    }
+    focusState = INITIAL_FOCUS_STATE;
+    d.writeOsc(FOCUS_REPORT_ENABLE);
+    focusReportingOn = true;
+    unsubscribeInput = ctx.ui.onTerminalInput((data) => {
+      const step = stepFocus(focusState, data);
+      focusState = step.state;
+      return step.result;
+    });
   });
 
-  pi.on("agent_start", () => {
-    // Capture the baseline once per agent run. Retries re-fire agent_start
-    // but must not reset it, so the duration reflects total user wait time.
-    if (runStartTime === undefined) {
-      runStartTime = d.now();
+  pi.on("session_shutdown", () => {
+    if (unsubscribeInput) {
+      unsubscribeInput();
+      unsubscribeInput = undefined;
     }
+    if (focusReportingOn) {
+      d.writeOsc(FOCUS_REPORT_DISABLE);
+      focusReportingOn = false;
+    }
+    focusState = INITIAL_FOCUS_STATE;
   });
 
   pi.on("agent_settled", (_event, ctx) => {
-    const startedAt = runStartTime;
-    runStartTime = undefined;
     if (
       !shouldNotifySettled({
         enabled,
-        startedAt,
-        now: d.now(),
-        minDurationMs: MIN_DURATION_MS,
+        focusKnown: focusState.focusKnown,
+        focused: focusState.focused,
       })
     ) {
       return;

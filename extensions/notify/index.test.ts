@@ -3,57 +3,26 @@ import assert from "node:assert/strict";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import type { NotifyPayload } from "../../extensions/notify/channels.ts";
-import notifyExtension, {
-  type NotifyDeps,
-  MIN_DURATION_MS,
-  shouldNotifySettled,
-} from "../../extensions/notify/index.ts";
+import type { NotifyPayload } from "./channels.ts";
+import { FOCUS_REPORT_DISABLE, FOCUS_REPORT_ENABLE } from "./focus.ts";
+import notifyExtension, { type NotifyDeps, shouldNotifySettled } from "./index.ts";
 
 // --- Pure gating ----------------------------------------------------------
 
-test("MIN_DURATION_MS is 10 seconds", () => {
-  assert.equal(MIN_DURATION_MS, 10_000);
-});
-
 test("shouldNotifySettled: false when disabled", () => {
-  assert.equal(
-    shouldNotifySettled({ enabled: false, startedAt: 0, now: 20_000, minDurationMs: 10_000 }),
-    false,
-  );
+  assert.equal(shouldNotifySettled({ enabled: false, focusKnown: true, focused: false }), false);
 });
 
-test("shouldNotifySettled: false when no run started", () => {
-  assert.equal(
-    shouldNotifySettled({
-      enabled: true,
-      startedAt: undefined,
-      now: 20_000,
-      minDurationMs: 10_000,
-    }),
-    false,
-  );
+test("shouldNotifySettled: true when focus is unknown (can't detect -> notify)", () => {
+  assert.equal(shouldNotifySettled({ enabled: true, focusKnown: false, focused: true }), true);
 });
 
-test("shouldNotifySettled: false when run is shorter than the threshold", () => {
-  assert.equal(
-    shouldNotifySettled({ enabled: true, startedAt: 0, now: 5_000, minDurationMs: 10_000 }),
-    false,
-  );
+test("shouldNotifySettled: false when focused and focus is known (user is watching)", () => {
+  assert.equal(shouldNotifySettled({ enabled: true, focusKnown: true, focused: true }), false);
 });
 
-test("shouldNotifySettled: true at exactly the threshold (inclusive)", () => {
-  assert.equal(
-    shouldNotifySettled({ enabled: true, startedAt: 0, now: 10_000, minDurationMs: 10_000 }),
-    true,
-  );
-});
-
-test("shouldNotifySettled: true beyond the threshold", () => {
-  assert.equal(
-    shouldNotifySettled({ enabled: true, startedAt: 0, now: 15_000, minDurationMs: 10_000 }),
-    true,
-  );
+test("shouldNotifySettled: true when unfocused and focus is known", () => {
+  assert.equal(shouldNotifySettled({ enabled: true, focusKnown: true, focused: false }), true);
 });
 
 // --- Test harness ---------------------------------------------------------
@@ -83,26 +52,21 @@ function makeStubPi() {
 interface Recorder {
   readonly deps: Partial<NotifyDeps>;
   readonly popups: { title: string; body: string; urgency: string }[];
-  readonly state: {
-    bells: number;
-    nowValue: number;
-    enabled: boolean;
-    warning: string | undefined;
-  };
+  readonly oscWrites: string[];
+  readonly state: { bells: number; enabled: boolean; warning: string | undefined };
 }
 
 function makeRecorder(
-  opts: { enabled?: boolean; now?: number; popup?: "fake" | "none" | "throwing" } = {},
+  opts: { enabled?: boolean; popup?: "fake" | "none" | "throwing" } = {},
 ): Recorder {
   const popups: { title: string; body: string; urgency: string }[] = [];
+  const oscWrites: string[] = [];
   const state = {
     bells: 0,
-    nowValue: opts.now ?? 0,
     enabled: opts.enabled ?? true,
     warning: undefined as string | undefined,
   };
   const deps: Partial<NotifyDeps> = {
-    now: () => state.nowValue,
     loadConfig: () => ({ enabled: state.enabled, warning: state.warning }),
     pickPopupChannel: () => {
       switch (opts.popup) {
@@ -129,15 +93,31 @@ function makeRecorder(
     ringBell: () => {
       state.bells += 1;
     },
+    writeOsc: (data: string) => {
+      oscWrites.push(data);
+    },
   };
-  return { deps, popups, state };
+  return { deps, popups, oscWrites, state };
 }
 
-function makeFakeCtx(cwd = "/proj") {
+interface FakeCtx {
+  readonly ctx: ExtensionContext;
+  readonly titles: string[];
+  readonly notifies: { message: string; type: string | undefined }[];
+  /** Feed raw terminal input to the registered onTerminalInput handler. */
+  sendInput(data: string): void;
+  /** Whether an input listener is currently registered. */
+  inputListenerActive: boolean;
+}
+
+function makeFakeCtx(cwd = "/proj", mode: "tui" | "rpc" | "json" | "print" = "tui"): FakeCtx {
   const titles: string[] = [];
   const notifies: { message: string; type: string | undefined }[] = [];
+  let inputHandler: ((data: string) => unknown) | undefined;
   const raw = {
     cwd,
+    mode,
+    hasUI: true,
     ui: {
       setTitle: (title: string) => {
         titles.push(title);
@@ -145,13 +125,28 @@ function makeFakeCtx(cwd = "/proj") {
       notify: (message: string, type?: "info" | "warning" | "error") => {
         notifies.push({ message, type });
       },
+      onTerminalInput: (handler: (data: string) => unknown): (() => void) => {
+        inputHandler = handler;
+        return () => {
+          inputHandler = undefined;
+        };
+      },
     },
   };
-  return { ctx: raw as unknown as ExtensionContext, titles, notifies };
+  return {
+    ctx: raw as unknown as ExtensionContext,
+    titles,
+    notifies,
+    sendInput: (data: string) => {
+      inputHandler?.(data);
+    },
+    get inputListenerActive() {
+      return inputHandler !== undefined;
+    },
+  };
 }
 
 const settledEvent = { type: "agent_settled" as const };
-const startEvent = { type: "agent_start" as const };
 
 function toolResultEvent(toolName: string, isError: boolean) {
   return {
@@ -165,44 +160,107 @@ function toolResultEvent(toolName: string, isError: boolean) {
   };
 }
 
-// --- Event wiring ---------------------------------------------------------
+// --- session_start: focus reporting setup --------------------------------
 
-test("agent_settled notifies after a long run", () => {
+test("session_start in TUI mode enables OSC 1004 focus reporting", () => {
   const { pi, emit } = makeStubPi();
   const rec = makeRecorder();
   const fake = makeFakeCtx();
   notifyExtension(pi, rec.deps);
 
   emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  rec.state.nowValue = 0;
-  emit("agent_start", startEvent, fake.ctx);
-  rec.state.nowValue = 10_000;
+
+  assert.ok(rec.oscWrites.includes(FOCUS_REPORT_ENABLE));
+  assert.equal(fake.inputListenerActive, true);
+});
+
+test("session_start in non-TUI mode does not enable focus reporting", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  const fake = makeFakeCtx("/proj", "print");
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+
+  assert.ok(!rec.oscWrites.includes(FOCUS_REPORT_ENABLE));
+  assert.equal(fake.inputListenerActive, false);
+});
+
+test("session_start surfaces a config warning via ui.notify", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  rec.state.warning = "notify: bad config";
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+
+  assert.equal(fake.notifies.length, 1);
+  assert.match(fake.notifies[0]?.message ?? "", /bad config/);
+  assert.equal(fake.notifies[0]?.type, "warning");
+});
+
+// --- agent_settled: focus gating ------------------------------------------
+
+test("agent_settled notifies when focus is unknown (no focus event seen yet)", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
   emit("agent_settled", settledEvent, fake.ctx);
 
   assert.equal(rec.popups.length, 1);
   assert.equal(rec.popups[0]?.urgency, "info");
-  assert.equal(rec.popups[0]?.title, "Pi");
   assert.match(rec.popups[0]?.body ?? "", /Finished/);
   assert.equal(rec.state.bells, 1);
   assert.equal(fake.titles.length, 1);
-  assert.match(fake.titles[0] ?? "", /Finished/);
 });
 
-test("agent_settled does not notify for a short run", () => {
+test("agent_settled notifies after a focus-out (user stepped away)", () => {
   const { pi, emit } = makeStubPi();
   const rec = makeRecorder();
   const fake = makeFakeCtx();
   notifyExtension(pi, rec.deps);
 
   emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  rec.state.nowValue = 0;
-  emit("agent_start", startEvent, fake.ctx);
-  rec.state.nowValue = 5_000;
+  fake.sendInput("\x1b[O");
+  emit("agent_settled", settledEvent, fake.ctx);
+
+  assert.equal(rec.popups.length, 1);
+  assert.equal(rec.state.bells, 1);
+});
+
+test("agent_settled does not notify while the terminal is focused", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  fake.sendInput("\x1b[I");
   emit("agent_settled", settledEvent, fake.ctx);
 
   assert.equal(rec.popups.length, 0);
   assert.equal(rec.state.bells, 0);
   assert.equal(fake.titles.length, 0);
+});
+
+test("agent_settled notifies again after the user refocuses then steps away", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  fake.sendInput("\x1b[I");
+  emit("agent_settled", settledEvent, fake.ctx);
+  assert.equal(rec.popups.length, 0);
+
+  fake.sendInput("\x1b[O");
+  emit("agent_settled", settledEvent, fake.ctx);
+  assert.equal(rec.popups.length, 1);
 });
 
 test("agent_settled does not notify when disabled by config", () => {
@@ -212,22 +270,49 @@ test("agent_settled does not notify when disabled by config", () => {
   notifyExtension(pi, rec.deps);
 
   emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  rec.state.nowValue = 0;
-  emit("agent_start", startEvent, fake.ctx);
-  rec.state.nowValue = 20_000;
+  fake.sendInput("\x1b[O");
   emit("agent_settled", settledEvent, fake.ctx);
 
   assert.equal(rec.popups.length, 0);
   assert.equal(rec.state.bells, 0);
 });
 
-test("tool_result error notifies immediately regardless of duration", () => {
+test("agent_settled in non-TUI mode notifies (focus cannot be detected)", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  const fake = makeFakeCtx("/proj", "print");
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  emit("agent_settled", settledEvent, fake.ctx);
+
+  assert.equal(rec.popups.length, 1);
+});
+
+test("a focus event split across input chunks is still recognised", () => {
   const { pi, emit } = makeStubPi();
   const rec = makeRecorder();
   const fake = makeFakeCtx();
   notifyExtension(pi, rec.deps);
 
   emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  fake.sendInput("\x1b[");
+  fake.sendInput("O");
+  emit("agent_settled", settledEvent, fake.ctx);
+
+  assert.equal(rec.popups.length, 1);
+});
+
+// --- tool_result: always surfaces errors ----------------------------------
+
+test("tool_result error notifies immediately, even when focused", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  fake.sendInput("\x1b[I");
   emit("tool_result", toolResultEvent("bash", true), fake.ctx);
 
   assert.equal(rec.popups.length, 1);
@@ -263,60 +348,53 @@ test("tool_result error does not notify when disabled", () => {
   assert.equal(rec.state.bells, 0);
 });
 
-test("agent_start baseline is preserved across retries", () => {
+// --- session_shutdown: cleanup --------------------------------------------
+
+test("session_shutdown disables focus reporting and unsubscribes the input listener", () => {
   const { pi, emit } = makeStubPi();
   const rec = makeRecorder();
   const fake = makeFakeCtx();
   notifyExtension(pi, rec.deps);
 
   emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  rec.state.nowValue = 0;
-  emit("agent_start", startEvent, fake.ctx);
-  // A retry re-fires agent_start 5s in; the baseline must not reset.
-  rec.state.nowValue = 5_000;
-  emit("agent_start", startEvent, fake.ctx);
-  rec.state.nowValue = 10_000;
+  assert.equal(fake.inputListenerActive, true);
+
+  emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, fake.ctx);
+
+  assert.ok(rec.oscWrites.includes(FOCUS_REPORT_DISABLE));
+  assert.equal(fake.inputListenerActive, false);
+});
+
+test("session_shutdown in non-TUI mode does not write the disable sequence", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  const fake = makeFakeCtx("/proj", "print");
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, fake.ctx);
+
+  assert.ok(!rec.oscWrites.includes(FOCUS_REPORT_DISABLE));
+});
+
+test("a settled run after shutdown re-enables focus reporting on the next session_start", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder();
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  fake.sendInput("\x1b[I");
+  emit("session_shutdown", { type: "session_shutdown", reason: "new" }, fake.ctx);
+
+  // New session: focus state resets to unknown, so a settle notifies.
+  emit("session_start", { type: "session_start", reason: "new" }, fake.ctx);
   emit("agent_settled", settledEvent, fake.ctx);
 
   assert.equal(rec.popups.length, 1);
-  assert.equal(rec.state.bells, 1);
 });
 
-test("agent_settled resets the baseline so a later run can notify again", () => {
-  const { pi, emit } = makeStubPi();
-  const rec = makeRecorder();
-  const fake = makeFakeCtx();
-  notifyExtension(pi, rec.deps);
-
-  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  rec.state.nowValue = 0;
-  emit("agent_start", startEvent, fake.ctx);
-  rec.state.nowValue = 10_000;
-  emit("agent_settled", settledEvent, fake.ctx);
-
-  // Second run, fully after the first settled.
-  rec.state.nowValue = 10_000;
-  emit("agent_start", startEvent, fake.ctx);
-  rec.state.nowValue = 20_000;
-  emit("agent_settled", settledEvent, fake.ctx);
-
-  assert.equal(rec.popups.length, 2);
-  assert.equal(rec.state.bells, 2);
-});
-
-test("session_start surfaces a config warning via ui.notify", () => {
-  const { pi, emit } = makeStubPi();
-  const rec = makeRecorder();
-  rec.state.warning = "notify: bad config";
-  const fake = makeFakeCtx();
-  notifyExtension(pi, rec.deps);
-
-  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-
-  assert.equal(fake.notifies.length, 1);
-  assert.match(fake.notifies[0]?.message ?? "", /bad config/);
-  assert.equal(fake.notifies[0]?.type, "warning");
-});
+// --- delivery robustness --------------------------------------------------
 
 test("still rings the bell and sets the title when no popup channel is available", () => {
   const { pi, emit } = makeStubPi();
@@ -325,9 +403,7 @@ test("still rings the bell and sets the title when no popup channel is available
   notifyExtension(pi, rec.deps);
 
   emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  rec.state.nowValue = 0;
-  emit("agent_start", startEvent, fake.ctx);
-  rec.state.nowValue = 10_000;
+  fake.sendInput("\x1b[O");
   emit("agent_settled", settledEvent, fake.ctx);
 
   assert.equal(rec.popups.length, 0);
@@ -342,9 +418,7 @@ test("a popup channel error does not disturb the session", () => {
   notifyExtension(pi, rec.deps);
 
   emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  rec.state.nowValue = 0;
-  emit("agent_start", startEvent, fake.ctx);
-  rec.state.nowValue = 10_000;
+  fake.sendInput("\x1b[O");
   emit("agent_settled", settledEvent, fake.ctx);
 
   // The popup threw, but the bell and title still fire.
