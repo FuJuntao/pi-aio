@@ -407,6 +407,31 @@ test("a settled run after shutdown re-enables focus reporting on the next sessio
   assert.equal(rec.popups.length, 1);
 });
 
+test("session_start on /reload re-reads config (so /reload picks up enabled changes)", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder({ enabled: true });
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  emit("agent_settled", settledEvent, fake.ctx);
+  assert.equal(rec.popups.length, 1, "enabled at startup -> notifies");
+
+  // User flips enabled:false in config, then /reload.
+  rec.state.enabled = false;
+  emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, fake.ctx);
+  emit("session_start", { type: "session_start", reason: "reload" }, fake.ctx);
+  emit("agent_settled", settledEvent, fake.ctx);
+  assert.equal(rec.popups.length, 1, "disabled after reload -> no new notification");
+
+  // Flipping back to enabled re-enables.
+  rec.state.enabled = true;
+  emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, fake.ctx);
+  emit("session_start", { type: "session_start", reason: "reload" }, fake.ctx);
+  emit("agent_settled", settledEvent, fake.ctx);
+  assert.equal(rec.popups.length, 2, "re-enabled after reload -> notifies again");
+});
+
 // --- delivery robustness --------------------------------------------------
 
 test("still rings the bell and sets the title when no popup channel is available", () => {
