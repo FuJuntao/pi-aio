@@ -52,8 +52,7 @@ function makeFakeDeps(): FakeRecorder {
   };
 }
 
-const info: NotifyPayload = { title: "Pi", body: "Done", urgency: "info" };
-const error: NotifyPayload = { title: "Pi", body: "Failed", urgency: "error" };
+const info: NotifyPayload = { title: "Pi", body: "Done" };
 
 // --- quoteAppleScript -----------------------------------------------------
 
@@ -94,14 +93,6 @@ test("terminal-notifier: send spawns the expected argv for info", () => {
   ]);
 });
 
-test("terminal-notifier: send uses Basso sound for errors", () => {
-  const rec = makeFakeDeps();
-  createTerminalNotifierChannel(rec.deps).send(error);
-  assert.deepEqual(rec.spawned, [
-    { cmd: "terminal-notifier", args: ["-title", "Pi", "-message", "Failed", "-sound", "Basso"] },
-  ]);
-});
-
 test("terminal-notifier: availability probes -help and is memoized", () => {
   const rec = makeFakeDeps();
   const channel = createTerminalNotifierChannel(rec.deps);
@@ -130,17 +121,6 @@ test("osascript: send builds a display notification script for info", () => {
   ]);
 });
 
-test("osascript: send uses Basso sound for errors", () => {
-  const rec = makeFakeDeps();
-  createOsascriptChannel(rec.deps).send(error);
-  assert.deepEqual(rec.spawned, [
-    {
-      cmd: "osascript",
-      args: ["-e", 'display notification "Failed" with title "Pi" sound name "Basso"'],
-    },
-  ]);
-});
-
 test("osascript: availability probes with -e 1", () => {
   const rec = makeFakeDeps();
   const channel = createOsascriptChannel(rec.deps);
@@ -150,19 +130,11 @@ test("osascript: availability probes with -e 1", () => {
 
 // --- notify-send ----------------------------------------------------------
 
-test("notify-send: send uses normal urgency for info", () => {
+test("notify-send: send uses normal urgency", () => {
   const rec = makeFakeDeps();
   createNotifySendChannel(rec.deps).send(info);
   assert.deepEqual(rec.spawned, [
     { cmd: "notify-send", args: ["--urgency", "normal", "--app-name", "pi", "Pi", "Done"] },
-  ]);
-});
-
-test("notify-send: send uses critical urgency for errors", () => {
-  const rec = makeFakeDeps();
-  createNotifySendChannel(rec.deps).send(error);
-  assert.deepEqual(rec.spawned, [
-    { cmd: "notify-send", args: ["--urgency", "critical", "--app-name", "pi", "Pi", "Failed"] },
   ]);
 });
 

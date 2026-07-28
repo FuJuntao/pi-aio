@@ -11,14 +11,10 @@
  * ever spawning a real process.
  */
 
-/** Urgency level for a notification. */
-export type NotifyUrgency = "info" | "error";
-
 /** Payload delivered to a channel. */
 export interface NotifyPayload {
   readonly title: string;
   readonly body: string;
-  readonly urgency: NotifyUrgency;
 }
 
 /** A delivery mechanism for popup notifications. */
@@ -88,15 +84,8 @@ export function createTerminalNotifierChannel(deps: ChannelDeps): NotifyChannel 
   return {
     name: "terminal-notifier",
     available: memoizeAvailability(deps, "terminal-notifier", ["-help"]),
-    send({ title, body, urgency }) {
-      deps.spawn("terminal-notifier", [
-        "-title",
-        title,
-        "-message",
-        body,
-        "-sound",
-        urgency === "error" ? "Basso" : "default",
-      ]);
+    send({ title, body }) {
+      deps.spawn("terminal-notifier", ["-title", title, "-message", body, "-sound", "default"]);
     },
   };
 }
@@ -105,12 +94,11 @@ export function createOsascriptChannel(deps: ChannelDeps): NotifyChannel {
   return {
     name: "osascript",
     available: memoizeAvailability(deps, "osascript", ["-e", "1"]),
-    send({ title, body, urgency }) {
-      const sound = urgency === "error" ? "Basso" : "default";
+    send({ title, body }) {
       const script =
         `display notification ${quoteAppleScript(body)}` +
         ` with title ${quoteAppleScript(title)}` +
-        ` sound name ${quoteAppleScript(sound)}`;
+        ` sound name ${quoteAppleScript("default")}`;
       deps.spawn("osascript", ["-e", script]);
     },
   };
@@ -120,15 +108,8 @@ export function createNotifySendChannel(deps: ChannelDeps): NotifyChannel {
   return {
     name: "notify-send",
     available: memoizeAvailability(deps, "notify-send", ["--version"]),
-    send({ title, body, urgency }) {
-      deps.spawn("notify-send", [
-        "--urgency",
-        urgency === "error" ? "critical" : "normal",
-        "--app-name",
-        "pi",
-        title,
-        body,
-      ]);
+    send({ title, body }) {
+      deps.spawn("notify-send", ["--urgency", "normal", "--app-name", "pi", title, body]);
     },
   };
 }

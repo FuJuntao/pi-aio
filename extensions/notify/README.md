@@ -7,13 +7,8 @@ when you've stepped away from the terminal.
 ## What it does
 
 pi runs long tasks (refactors, test suites, multi-step agent runs). `notify`
-pops up a notification when:
-
-- **pi finishes a run and is waiting for your next message** (`agent_settled`),
-  and
-- **a tool call errors** (`tool_result` with an error),
-
-so you don't have to keep checking the terminal.
+pops up a notification when **pi finishes a run and is waiting for your next
+message** (`agent_settled`), so you don't have to keep checking the terminal.
 
 ## When it notifies
 
@@ -25,8 +20,6 @@ If your terminal can't report focus (see [Focus detection](#focus-detection)), o
 you're running pi non-interactively (for example `pi -p`), the "finished"
 notification fires regardless - it's better to over-notify than to miss a
 completed task.
-
-**Tool errors always notify**, regardless of focus or mode.
 
 ## How it notifies
 

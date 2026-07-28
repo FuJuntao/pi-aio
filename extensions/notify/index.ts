@@ -2,18 +2,17 @@
  * Notify extension entry point for `@fujuntao/pi-aio`.
  *
  * Delivers cross-platform notifications when pi needs the user - when it settles
- * and is waiting for input (`agent_settled`) and when a tool errors
- * (`tool_result` with `isError`). It auto-selects a native desktop notification
- * when local, or a terminal-protocol notification (OSC 777/9/99) over SSH or
- * when no desktop binary is present - plus a bell and window-title cue.
+ * and is waiting for input (`agent_settled`). It auto-selects a native desktop
+ * notification when local, or a terminal-protocol notification (OSC 777/9/99)
+ * over SSH or when no desktop binary is present - plus a bell and window-title
+ * cue.
  *
  * Gating: a "settled" notification fires only when the terminal is **not
  * focused** (the user has switched away). Focus is tracked via OSC 1004 focus
  * events in interactive (TUI) mode. If focus cannot be detected - the terminal
  * doesn't speak OSC 1004, or the session is non-interactive - the notification
  * fires regardless (better to over-notify than to swallow a "done" signal).
- * Tool errors are never focus-gated; they always surface. There is no duration
- * threshold.
+ * There is no duration threshold.
  *
  * Config: a single `enabled` field in `~/.pi/agent/notify.json` (global) merged
  * with `<cwd>/.pi/notify.json` (project wins). Absent config defaults to
@@ -228,12 +227,6 @@ export default function notifyExtension(
     ) {
       return;
     }
-    notify(ctx, { title: "Pi", body: "Finished - waiting for input", urgency: "info" }, d);
-  });
-
-  pi.on("tool_result", (event, ctx) => {
-    if (!enabled) return;
-    if (!event.isError) return;
-    notify(ctx, { title: "Pi", body: `Tool "${event.toolName}" failed`, urgency: "error" }, d);
+    notify(ctx, { title: "Pi", body: "Finished - waiting for input" }, d);
   });
 }

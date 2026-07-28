@@ -19,8 +19,8 @@ project settings; see `pi install --help` for details.
 ### Extensions
 
 - **[notify](extensions/notify/README.md)** - cross-platform desktop/terminal
-  notifications when pi finishes a run or a tool errors; stays quiet while
-  you're focused on the terminal.
+  notifications when pi finishes a run and is waiting for input; stays quiet
+  while you're focused on the terminal.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, scripts, and
 contribution guidelines.
