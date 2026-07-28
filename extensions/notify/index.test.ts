@@ -186,6 +186,19 @@ test("session_start in non-TUI mode does not enable focus reporting", () => {
   assert.equal(fake.inputListenerActive, false);
 });
 
+test("session_start does not enable focus reporting when disabled by config", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder({ enabled: false });
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+
+  // A disabled extension must be inert: no terminal mode change, no input listener.
+  assert.ok(!rec.oscWrites.includes(FOCUS_REPORT_ENABLE));
+  assert.equal(fake.inputListenerActive, false);
+});
+
 test("session_start surfaces a config warning via ui.notify", () => {
   const { pi, emit } = makeStubPi();
   const rec = makeRecorder();
@@ -392,6 +405,31 @@ test("a settled run after shutdown re-enables focus reporting on the next sessio
   emit("agent_settled", settledEvent, fake.ctx);
 
   assert.equal(rec.popups.length, 1);
+});
+
+test("session_start on /reload re-reads config (so /reload picks up enabled changes)", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder({ enabled: true });
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+  emit("agent_settled", settledEvent, fake.ctx);
+  assert.equal(rec.popups.length, 1, "enabled at startup -> notifies");
+
+  // User flips enabled:false in config, then /reload.
+  rec.state.enabled = false;
+  emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, fake.ctx);
+  emit("session_start", { type: "session_start", reason: "reload" }, fake.ctx);
+  emit("agent_settled", settledEvent, fake.ctx);
+  assert.equal(rec.popups.length, 1, "disabled after reload -> no new notification");
+
+  // Flipping back to enabled re-enables.
+  rec.state.enabled = true;
+  emit("session_shutdown", { type: "session_shutdown", reason: "reload" }, fake.ctx);
+  emit("session_start", { type: "session_start", reason: "reload" }, fake.ctx);
+  emit("agent_settled", settledEvent, fake.ctx);
+  assert.equal(rec.popups.length, 2, "re-enabled after reload -> notifies again");
 });
 
 // --- delivery robustness --------------------------------------------------

@@ -185,6 +185,9 @@ export default function notifyExtension(
     if (config.warning) {
       ctx.ui.notify(config.warning, "warning");
     }
+    // A disabled extension must be inert: no terminal mode change, no input
+    // parsing. Config is still re-read above so a later /reload can re-enable.
+    if (!enabled) return;
     // Focus detection only works in interactive TTY mode, where pi feeds raw
     // terminal input to onTerminalInput. Elsewhere focusState stays at its
     // initial "unknown" value, which means "notify" per the gating rule.
