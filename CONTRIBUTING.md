@@ -62,7 +62,7 @@ Run from the repo root:
 | `pnpm format`       | Format all files in place (oxfmt).               |
 | `pnpm format:check` | Check formatting without writing (used by CI).   |
 | `pnpm typecheck`    | Type-check (`tsc --noEmit`).                     |
-| `pnpm test`         | Run unit tests (`node --test`).                  |
+| `pnpm test`         | Run tests (vitest).                              |
 | `pnpm changeset`    | Add a changeset (describe a user-facing change). |
 | `pnpm version`      | Apply changesets -> bump versions & changelogs.  |
 | `pnpm release`      | Publish the package.                             |
@@ -215,6 +215,39 @@ paths in the `pi` manifest:
 
 Pi loads packages with separate module roots, so bundled packages do not collide
 or share modules.
+
+## Testing extensions
+
+Tests run on [vitest](https://vitest.dev) (`pnpm test` -> `vitest run`), in CI
+with no secrets. Config lives in [`vitest.config.ts`](vitest.config.ts): node
+environment, explicit imports (no reliance on globals despite `globals: true`),
+file-per-process isolation, offline-by-default, and a 30s timeout for sessions.
+
+Test files are co-located next to the code as `*.test.ts` and excluded from the
+npm tarball by the `files` allowlist (test-only helpers use a `_`-prefix, also
+excluded). Import `{ test }` (or `describe` / `it` / `expect`) from `vitest`
+explicitly so oxlint never sees undefined globals.
+
+- **Unit tests** cover an extension's pure decision helpers by injecting inputs
+  directly - see `extensions/notify/{config,select,channels,focus}.test.ts` and
+  the `shouldNotifySettled` cases in `index.test.ts`. No env or module stubbing
+  is needed because the helpers take `platform` / `env` / `isTTY` as arguments.
+- **E2E tests** load an extension through pi's real runtime and drive a turn
+  with the faux provider, via the `createExtensionSession` helper in
+  [`extensions/notify/_harness.ts`](extensions/notify/_harness.ts). It builds an
+  in-memory `AgentSession` with `DefaultResourceLoader({ additionalExtensionPaths
+})` + `fauxProvider` (scripted responses, no API keys, no network), injects a
+  recording `ctx.ui` via `session.bindExtensions({ uiContext })` to capture
+  `setTitle` / `notify` / `onTerminalInput` (not otherwise observable headless),
+  and records session events via `session.subscribe`. See
+  `extensions/notify/e2e.test.ts` for the pattern.
+
+To add e2e for a new extension, reuse `createExtensionSession({ extensionPath,
+responses?, configFiles? })` from a `*.test.ts` next to it - pass the extension's
+directory (a dir with `index.ts` loads as one entry, ignoring sibling tests),
+script the model with `faux.setResponses([...])`, drive with `session.prompt()` +
+`waitForIdle()`, and assert on `ui.titles` / `ui.notifies` / `eventsOfType(...)`.
+`await cleanup()` in `afterEach` disposes the session and temp dirs.
 
 ## Conventional commits
 
