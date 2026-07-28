@@ -1,11 +1,12 @@
 {
   "$schema": "https://www.schemastore.org/tsconfig",
-  "extends": ["@tsconfig/node-lts/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
+  "extends": [
+    "@tsconfig/node-lts/tsconfig.json",
+    "@tsconfig/node-ts/tsconfig.json",
+    "@tsconfig/strictest/tsconfig.json"
+  ],
   "compilerOptions": {
-    "verbatimModuleSyntax": true,
-    "erasableSyntaxOnly": true,
     "noEmit": true,
-    "allowImportingTsExtensions": true,
     "types": ["node"]
   }
 }
