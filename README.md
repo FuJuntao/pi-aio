@@ -14,5 +14,13 @@ pi install npm:@fujuntao/pi-aio
 `pi install` accepts npm, git, and local-path sources and writes to user or
 project settings; see `pi install --help` for details.
 
+## What's included
+
+### Extensions
+
+- **[notify](extensions/notify/README.md)** - cross-platform desktop/terminal
+  notifications when pi finishes a run or a tool errors; stays quiet while
+  you're focused on the terminal.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, scripts, and
 contribution guidelines.

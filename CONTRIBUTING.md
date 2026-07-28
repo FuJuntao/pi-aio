@@ -62,7 +62,7 @@ Run from the repo root:
 | `pnpm format`       | Format all files in place (oxfmt).               |
 | `pnpm format:check` | Check formatting without writing (used by CI).   |
 | `pnpm typecheck`    | Type-check (`tsc --noEmit`).                     |
-| `pnpm test`         | No-op placeholder (no tests yet).                |
+| `pnpm test`         | Run unit tests (`node --test`).                  |
 | `pnpm changeset`    | Add a changeset (describe a user-facing change). |
 | `pnpm version`      | Apply changesets -> bump versions & changelogs.  |
 | `pnpm release`      | Publish the package.                             |
@@ -81,8 +81,8 @@ that shape how you write TypeScript:
   elided. Use `import type` (or the inline `type` modifier) for anything used
   only as a type; never import a type as a value.
   ```ts
-  import type { Options } from "./options.js"; // type-only
-  import { read, type Config } from "./config.js"; // mixed: value + inline type
+  import type { Options } from "./options.ts"; // type-only
+  import { read, type Config } from "./config.ts"; // mixed: value + inline type
   ```
 - **`erasableSyntaxOnly`** - only TypeScript syntax that **erases** to plain
   JavaScript is allowed. Anything that emits runtime code is forbidden:
