@@ -102,7 +102,6 @@ test("choosePopupKind: over SSH with a TTY prefers the terminal protocol", () =>
     env: env({ SSH_CONNECTION: "x", KITTY_WINDOW_ID: "1" }),
     platform: "darwin",
     isTTY: true,
-    wsl: false,
     desktopAvailable: available(["terminal-notifier"]),
   });
   assert.equal(kind, "kitty");
@@ -113,7 +112,6 @@ test("choosePopupKind: over SSH without a TTY has no channel", () => {
     env: env({ SSH_CONNECTION: "x" }),
     platform: "darwin",
     isTTY: false,
-    wsl: false,
     desktopAvailable: available(["terminal-notifier"]),
   });
   assert.equal(kind, undefined);
@@ -124,7 +122,6 @@ test("choosePopupKind: local darwin with terminal-notifier uses it", () => {
     env: env({}),
     platform: "darwin",
     isTTY: true,
-    wsl: false,
     desktopAvailable: available(["terminal-notifier"]),
   });
   assert.equal(kind, "terminal-notifier");
@@ -135,7 +132,6 @@ test("choosePopupKind: local darwin falls back to osascript", () => {
     env: env({}),
     platform: "darwin",
     isTTY: true,
-    wsl: false,
     desktopAvailable: available(["osascript"]),
   });
   assert.equal(kind, "osascript");
@@ -146,7 +142,6 @@ test("choosePopupKind: local darwin with no desktop binary uses osc777 on a TTY"
     env: env({}),
     platform: "darwin",
     isTTY: true,
-    wsl: false,
     desktopAvailable: available([]),
   });
   assert.equal(kind, "osc777");
@@ -157,7 +152,6 @@ test("choosePopupKind: local linux with notify-send and DISPLAY uses notify-send
     env: env({ DISPLAY: ":0" }),
     platform: "linux",
     isTTY: true,
-    wsl: false,
     desktopAvailable: available(["notify-send"]),
   });
   assert.equal(kind, "notify-send");
@@ -168,7 +162,6 @@ test("choosePopupKind: local linux with notify-send but no DISPLAY falls back to
     env: env({}),
     platform: "linux",
     isTTY: true,
-    wsl: false,
     desktopAvailable: available(["notify-send"]),
   });
   assert.equal(kind, "osc777");
@@ -179,7 +172,6 @@ test("choosePopupKind: local linux without notify-send falls back to terminal", 
     env: env({ DISPLAY: ":0" }),
     platform: "linux",
     isTTY: true,
-    wsl: false,
     desktopAvailable: available([]),
   });
   assert.equal(kind, "osc777");
@@ -190,65 +182,41 @@ test("choosePopupKind: local with no TTY and no desktop binary has no channel", 
     env: env({}),
     platform: "darwin",
     isTTY: false,
-    wsl: false,
     desktopAvailable: available([]),
   });
   assert.equal(kind, undefined);
 });
 
-// --- choosePopupKind: WSL -------------------------------------------------
+// WSL reports `platform === "linux"` but is resolved to "win32" for desktop
+// selection in `index.ts` (via `detectWsl`), so the path it exercises is the
+// win32 one below rather than the linux ones above.
 
-test("choosePopupKind: WSL with powershell.exe available uses the Windows toast", () => {
+test("choosePopupKind: win32 with powershell available uses the Windows toast", () => {
   const kind = choosePopupKind({
     env: env({}),
-    platform: "linux",
+    platform: "win32",
     isTTY: true,
-    wsl: true,
     desktopAvailable: available(["powershell"]),
   });
   assert.equal(kind, "powershell");
 });
 
-test("choosePopupKind: WSL uses powershell even without DISPLAY/WAYLAND", () => {
+test("choosePopupKind: win32 without powershell falls back to terminal on a TTY", () => {
   const kind = choosePopupKind({
     env: env({}),
-    platform: "linux",
+    platform: "win32",
     isTTY: true,
-    wsl: true,
-    desktopAvailable: available(["powershell", "notify-send"]),
-  });
-  assert.equal(kind, "powershell");
-});
-
-test("choosePopupKind: WSL without powershell.exe (interop disabled) falls back to terminal", () => {
-  const kind = choosePopupKind({
-    env: env({}),
-    platform: "linux",
-    isTTY: true,
-    wsl: true,
-    desktopAvailable: available(["notify-send"]),
+    desktopAvailable: available([]),
   });
   assert.equal(kind, "osc777");
 });
 
-test("choosePopupKind: WSL over SSH uses the terminal protocol, not the host toast", () => {
+test("choosePopupKind: win32 over SSH uses the terminal protocol, not the host toast", () => {
   const kind = choosePopupKind({
     env: env({ SSH_CONNECTION: "x" }),
-    platform: "linux",
+    platform: "win32",
     isTTY: true,
-    wsl: true,
     desktopAvailable: available(["powershell"]),
   });
   assert.equal(kind, "osc777");
-});
-
-test("choosePopupKind: WSL with no TTY and no powershell.exe has no channel", () => {
-  const kind = choosePopupKind({
-    env: env({}),
-    platform: "linux",
-    isTTY: false,
-    wsl: true,
-    desktopAvailable: available([]),
-  });
-  assert.equal(kind, undefined);
 });

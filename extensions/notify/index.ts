@@ -95,6 +95,17 @@ function detectWsl(): boolean {
   }
 }
 
+/**
+ * The platform to use for desktop-channel selection. WSL reports "linux" but
+ * its desktop is Windows (`powershell.exe` is reachable via interop, with no
+ * Linux display server unless WSLg), so resolve it to "win32" - otherwise it
+ * would try `notify-send` (absent) and fall through to OSC 777, which Windows
+ * Terminal does not support in stable, producing no notification at all.
+ */
+function desktopPlatform(): string {
+  return detectWsl() && platform === "linux" ? "win32" : platform;
+}
+
 function realChannelDeps(): ChannelDeps {
   return {
     spawn: realSpawnDetached,
@@ -109,9 +120,8 @@ function realPickPopupChannel(): NotifyChannel | undefined {
   const channels = createChannels(realChannelDeps());
   const kind = choosePopupKind({
     env,
-    platform,
+    platform: desktopPlatform(),
     isTTY: Boolean(stdout.isTTY),
-    wsl: detectWsl(),
     desktopAvailable: (k: ChannelKind) => channels[k].available(),
   });
   return kind ? channels[kind] : undefined;
