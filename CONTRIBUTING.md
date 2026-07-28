@@ -1,4 +1,4 @@
-# Contributing to pi-extensions
+# Contributing to pi-aio
 
 Thanks for contributing! This guide is the single source for the contribution
 workflow, coding standards, and repo maintenance. Read it alone and you will know
