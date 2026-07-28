@@ -1,4 +1,4 @@
-# pi-extensions
+# pi-aio
 
 A single, root-level [pi](https://github.com/earendil-works/pi) package -
 `@fujuntao/pi-aio` - bundling extensions, skills, prompt templates, and themes

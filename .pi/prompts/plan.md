@@ -1,5 +1,5 @@
 ---
-description: "Plan work for the pi-extensions repo - gather, quiz, publish focused GitHub issues"
+description: "Plan work for the pi-aio repo - gather, quiz, publish focused GitHub issues"
 argument-hint: "[topic]"
 ---
 
