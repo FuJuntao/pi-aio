@@ -51,7 +51,7 @@ function makeStubPi() {
 
 interface Recorder {
   readonly deps: Partial<NotifyDeps>;
-  readonly popups: { title: string; body: string; urgency: string }[];
+  readonly popups: { title: string; body: string }[];
   readonly oscWrites: string[];
   readonly state: { bells: number; enabled: boolean; warning: string | undefined };
 }
@@ -59,7 +59,7 @@ interface Recorder {
 function makeRecorder(
   opts: { enabled?: boolean; popup?: "fake" | "none" | "throwing" } = {},
 ): Recorder {
-  const popups: { title: string; body: string; urgency: string }[] = [];
+  const popups: { title: string; body: string }[] = [];
   const oscWrites: string[] = [];
   const state = {
     bells: 0,
@@ -85,7 +85,7 @@ function makeRecorder(
             name: "fake",
             available: () => true,
             send: (payload: NotifyPayload) => {
-              popups.push({ title: payload.title, body: payload.body, urgency: payload.urgency });
+              popups.push({ title: payload.title, body: payload.body });
             },
           };
       }
@@ -147,18 +147,6 @@ function makeFakeCtx(cwd = "/proj", mode: "tui" | "rpc" | "json" | "print" = "tu
 }
 
 const settledEvent = { type: "agent_settled" as const };
-
-function toolResultEvent(toolName: string, isError: boolean) {
-  return {
-    type: "tool_result" as const,
-    toolCallId: "c1",
-    toolName,
-    input: {},
-    content: [],
-    isError,
-    details: undefined,
-  };
-}
 
 // --- session_start: focus reporting setup --------------------------------
 
@@ -225,7 +213,6 @@ test("agent_settled notifies when focus is unknown (no focus event seen yet)", (
   emit("agent_settled", settledEvent, fake.ctx);
 
   assert.equal(rec.popups.length, 1);
-  assert.equal(rec.popups[0]?.urgency, "info");
   assert.match(rec.popups[0]?.body ?? "", /Finished/);
   assert.equal(rec.state.bells, 1);
   assert.equal(fake.titles.length, 1);
@@ -314,51 +301,6 @@ test("a focus event split across input chunks is still recognised", () => {
   emit("agent_settled", settledEvent, fake.ctx);
 
   assert.equal(rec.popups.length, 1);
-});
-
-// --- tool_result: always surfaces errors ----------------------------------
-
-test("tool_result error notifies immediately, even when focused", () => {
-  const { pi, emit } = makeStubPi();
-  const rec = makeRecorder();
-  const fake = makeFakeCtx();
-  notifyExtension(pi, rec.deps);
-
-  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  fake.sendInput("\x1b[I");
-  emit("tool_result", toolResultEvent("bash", true), fake.ctx);
-
-  assert.equal(rec.popups.length, 1);
-  assert.equal(rec.popups[0]?.urgency, "error");
-  assert.match(rec.popups[0]?.body ?? "", /bash/);
-  assert.equal(rec.state.bells, 1);
-  assert.match(fake.titles[0] ?? "", /bash/);
-});
-
-test("tool_result without error does not notify", () => {
-  const { pi, emit } = makeStubPi();
-  const rec = makeRecorder();
-  const fake = makeFakeCtx();
-  notifyExtension(pi, rec.deps);
-
-  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  emit("tool_result", toolResultEvent("read", false), fake.ctx);
-
-  assert.equal(rec.popups.length, 0);
-  assert.equal(rec.state.bells, 0);
-});
-
-test("tool_result error does not notify when disabled", () => {
-  const { pi, emit } = makeStubPi();
-  const rec = makeRecorder({ enabled: false });
-  const fake = makeFakeCtx();
-  notifyExtension(pi, rec.deps);
-
-  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
-  emit("tool_result", toolResultEvent("bash", true), fake.ctx);
-
-  assert.equal(rec.popups.length, 0);
-  assert.equal(rec.state.bells, 0);
 });
 
 // --- session_shutdown: cleanup --------------------------------------------
