@@ -186,6 +186,19 @@ test("session_start in non-TUI mode does not enable focus reporting", () => {
   assert.equal(fake.inputListenerActive, false);
 });
 
+test("session_start does not enable focus reporting when disabled by config", () => {
+  const { pi, emit } = makeStubPi();
+  const rec = makeRecorder({ enabled: false });
+  const fake = makeFakeCtx();
+  notifyExtension(pi, rec.deps);
+
+  emit("session_start", { type: "session_start", reason: "startup" }, fake.ctx);
+
+  // A disabled extension must be inert: no terminal mode change, no input listener.
+  assert.ok(!rec.oscWrites.includes(FOCUS_REPORT_ENABLE));
+  assert.equal(fake.inputListenerActive, false);
+});
+
 test("session_start surfaces a config warning via ui.notify", () => {
   const { pi, emit } = makeStubPi();
   const rec = makeRecorder();
