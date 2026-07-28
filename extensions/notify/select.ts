@@ -72,6 +72,8 @@ export interface PopupSelectionInput {
   readonly env: Record<string, string | undefined>;
   readonly platform: string;
   readonly isTTY: boolean;
+  /** True when running under WSL (Linux kernel with a Windows desktop reachable via interop). */
+  readonly wsl: boolean;
   /** True when the given desktop channel's binary is available on PATH. */
   readonly desktopAvailable: (kind: ChannelKind) => boolean;
 }
@@ -81,13 +83,21 @@ export interface PopupSelectionInput {
  * local and a binary is present, otherwise a terminal-protocol notification.
  * Never both. Returns undefined when no suitable channel exists (e.g. not a
  * TTY and no desktop binary).
+ *
+ * WSL reports `platform === "linux"` but exposes `powershell.exe` via interop
+ * and has no Linux display server (unless WSLg). Without WSL handling it would
+ * try `notify-send` (absent) and fall through to OSC 777, which Windows
+ * Terminal does not support - so no notification ever appears. Mapping WSL to
+ * a Windows desktop picks the PowerShell toast instead, which fires a real
+ * Windows notification through interop.
  */
 export function choosePopupKind(input: PopupSelectionInput): ChannelKind | undefined {
   const terminalKind = chooseTerminalKind(input.env, input.isTTY);
   if (isOverSsh(input.env)) return terminalKind;
 
-  for (const kind of chooseDesktopKind(input.platform)) {
-    if (input.desktopAvailable(kind) && desktopSessionPresent(input.platform, input.env)) {
+  const desktopPlatform = input.wsl && input.platform === "linux" ? "win32" : input.platform;
+  for (const kind of chooseDesktopKind(desktopPlatform)) {
+    if (input.desktopAvailable(kind) && desktopSessionPresent(desktopPlatform, input.env)) {
       return kind;
     }
   }

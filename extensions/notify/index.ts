@@ -30,6 +30,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { env, platform, stdout } from "node:process";
 import {
   CONFIG_DIR_NAME,
@@ -78,6 +79,22 @@ function realProbe(cmd: string, args: readonly string[]): boolean {
   return result.error === undefined && typeof result.status === "number";
 }
 
+/**
+ * Whether this Linux process is really running under WSL, where `powershell.exe`
+ * is reachable via interop and can fire a native Windows toast. Detected from
+ * `/proc/version`, which mentions "microsoft" on both WSL 1 and WSL 2 - the
+ * same check the `is-wsl` package and many others use. Non-Linux platforms and
+ * a missing/unreadable file return false.
+ */
+function detectWsl(): boolean {
+  if (platform !== "linux") return false;
+  try {
+    return /microsoft/i.test(readFileSync("/proc/version", "utf8"));
+  } catch {
+    return false;
+  }
+}
+
 function realChannelDeps(): ChannelDeps {
   return {
     spawn: realSpawnDetached,
@@ -94,6 +111,7 @@ function realPickPopupChannel(): NotifyChannel | undefined {
     env,
     platform,
     isTTY: Boolean(stdout.isTTY),
+    wsl: detectWsl(),
     desktopAvailable: (k: ChannelKind) => channels[k].available(),
   });
   return kind ? channels[kind] : undefined;

@@ -31,10 +31,21 @@ event, never several at once:
 | macOS                                  | `terminal-notifier`, falling back to `osascript`                     |
 | Linux                                  | `notify-send`                                                        |
 | Windows                                | a PowerShell toast                                                   |
+| WSL                                    | a PowerShell toast, via `powershell.exe` interop                     |
 | Over SSH, or no desktop binary present | a terminal escape sequence: Kitty OSC 99, iTerm2 OSC 9, else OSC 777 |
 
 Every popup is accompanied by a terminal **bell** and a **window-title** cue
 (`Pi: …`).
+
+## WSL
+
+WSL reports as Linux but has no `notify-send` or display server by default, and
+Windows Terminal does not support the OSC 777 notify sequence in stable builds -
+so without WSL handling, no notification ever appears. `notify` detects WSL
+(via `/proc/version`) and uses the Windows PowerShell toast through `powershell.exe`
+interop instead, which is on PATH by default. WSL interop must be enabled (the
+default) for this to work; see
+[WSL interop](https://learn.microsoft.com/en-us/windows/dev-environment/wsl/interop).
 
 ## Focus detection
 
@@ -81,6 +92,11 @@ Once installed, pi loads it automatically - no further setup.
 
 - **No notifications at all** - check that `enabled` isn't `false` in
   `~/.pi/agent/notify.json` or `<project>/.pi/notify.json`.
+- **No notification on WSL** - `notify` fires the toast through `powershell.exe`
+  interop. Check that `powershell.exe` is on PATH inside WSL; if not, WSL interop
+  is disabled - re-enable `[Interop]` / `appendWindowsPath` in `/etc/wsl.conf`.
+  Windows Terminal's OSC 777 fallback is not in stable, so the PowerShell toast
+  is what makes WSL work.
 - **"Finished" notifications fire even while I'm focused** - your terminal
   likely doesn't support OSC 1004 focus reporting (or has it disabled), so
   `notify` falls back to always-notify. This is expected; the popup is the
