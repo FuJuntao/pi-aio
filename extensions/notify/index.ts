@@ -30,6 +30,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { env, platform, stdout } from "node:process";
 import {
   CONFIG_DIR_NAME,
@@ -78,6 +79,33 @@ function realProbe(cmd: string, args: readonly string[]): boolean {
   return result.error === undefined && typeof result.status === "number";
 }
 
+/**
+ * Whether this Linux process is really running under WSL, where `powershell.exe`
+ * is reachable via interop and can fire a native Windows toast. Detected from
+ * `/proc/version`, which mentions "microsoft" on both WSL 1 and WSL 2 - the
+ * same check the `is-wsl` package and many others use. Non-Linux platforms and
+ * a missing/unreadable file return false.
+ */
+function detectWsl(): boolean {
+  if (platform !== "linux") return false;
+  try {
+    return /microsoft/i.test(readFileSync("/proc/version", "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The platform to use for desktop-channel selection. WSL reports "linux" but
+ * its desktop is Windows (`powershell.exe` is reachable via interop, with no
+ * Linux display server unless WSLg), so resolve it to "win32" - otherwise it
+ * would try `notify-send` (absent) and fall through to OSC 777, which Windows
+ * Terminal does not support in stable, producing no notification at all.
+ */
+function desktopPlatform(): string {
+  return detectWsl() && platform === "linux" ? "win32" : platform;
+}
+
 function realChannelDeps(): ChannelDeps {
   return {
     spawn: realSpawnDetached,
@@ -92,7 +120,7 @@ function realPickPopupChannel(): NotifyChannel | undefined {
   const channels = createChannels(realChannelDeps());
   const kind = choosePopupKind({
     env,
-    platform,
+    platform: desktopPlatform(),
     isTTY: Boolean(stdout.isTTY),
     desktopAvailable: (k: ChannelKind) => channels[k].available(),
   });

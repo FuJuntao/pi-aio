@@ -186,3 +186,37 @@ test("choosePopupKind: local with no TTY and no desktop binary has no channel", 
   });
   assert.equal(kind, undefined);
 });
+
+// WSL reports `platform === "linux"` but is resolved to "win32" for desktop
+// selection in `index.ts` (via `detectWsl`), so the path it exercises is the
+// win32 one below rather than the linux ones above.
+
+test("choosePopupKind: win32 with powershell available uses the Windows toast", () => {
+  const kind = choosePopupKind({
+    env: env({}),
+    platform: "win32",
+    isTTY: true,
+    desktopAvailable: available(["powershell"]),
+  });
+  assert.equal(kind, "powershell");
+});
+
+test("choosePopupKind: win32 without powershell falls back to terminal on a TTY", () => {
+  const kind = choosePopupKind({
+    env: env({}),
+    platform: "win32",
+    isTTY: true,
+    desktopAvailable: available([]),
+  });
+  assert.equal(kind, "osc777");
+});
+
+test("choosePopupKind: win32 over SSH uses the terminal protocol, not the host toast", () => {
+  const kind = choosePopupKind({
+    env: env({ SSH_CONNECTION: "x" }),
+    platform: "win32",
+    isTTY: true,
+    desktopAvailable: available(["powershell"]),
+  });
+  assert.equal(kind, "osc777");
+});

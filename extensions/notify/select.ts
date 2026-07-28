@@ -80,7 +80,9 @@ export interface PopupSelectionInput {
  * Pick exactly one popup channel kind: a native desktop notification when
  * local and a binary is present, otherwise a terminal-protocol notification.
  * Never both. Returns undefined when no suitable channel exists (e.g. not a
- * TTY and no desktop binary).
+ * TTY and no desktop binary). `platform` is the desktop-effective platform;
+ * the caller resolves WSL (which reports "linux" but has a Windows desktop)
+ * to "win32" before calling.
  */
 export function choosePopupKind(input: PopupSelectionInput): ChannelKind | undefined {
   const terminalKind = chooseTerminalKind(input.env, input.isTTY);
