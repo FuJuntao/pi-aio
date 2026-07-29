@@ -107,6 +107,23 @@ describe("settled notification gating", () => {
     expect(s.ui.titles[0]).toMatch(/Finished/);
   });
 
+  it("does not ring a bell on settle (iTerm would turn a BEL into a 2nd notification - #45)", async () => {
+    // The extension must not write a BEL (\x07) alongside the popup: iTerm and
+    // similar terminals convert BEL into its own notification, which doubled up
+    // with the popup (#45). The popup is the only audible/visible cue besides
+    // the window title. In CI no popup fires (no binaries, not a TTY), so this
+    // asserts the bell path is gone entirely - it would catch an unconditional
+    // or mode-gated bell being re-added. (An isTTY-gated bell is invisible in
+    // CI and can't be asserted here; the #45 note in index.ts guards that.)
+    s = await createExtensionSession({ extensionPath });
+
+    await s.session.prompt("hi");
+    await s.session.waitForIdle();
+
+    expect(s.eventsOfType("agent_settled").length).toBeGreaterThan(0);
+    expect(s.ui.stdoutWrites).not.toContain("\x07");
+  });
+
   it("suppresses the notification while the terminal is focused", async () => {
     // The regression-prone focus gate: a focus-in event (OSC 1004) makes the
     // focus state known + focused, so shouldNotifySettled returns false and no

@@ -4,8 +4,7 @@
  * Delivers cross-platform notifications when pi needs the user - when it settles
  * and is waiting for input (`agent_settled`). It auto-selects a native desktop
  * notification when local, or a terminal-protocol notification (OSC 777/9/99)
- * over SSH or when no desktop binary is present - plus a bell and window-title
- * cue.
+ * over SSH or when no desktop binary is present - plus a window-title cue.
  *
  * Gating: a "settled" notification fires only when the terminal is **not
  * focused** (the user has switched away). Focus is tracked via OSC 1004 focus
@@ -81,12 +80,6 @@ function pickPopupChannel(): NotifyChannel | undefined {
   return kind ? channels[kind] : undefined;
 }
 
-function ringBell(): void {
-  if (stdout.isTTY) {
-    stdout.write("\x07");
-  }
-}
-
 function writeOsc(data: string): void {
   stdout.write(data);
 }
@@ -119,7 +112,11 @@ export function shouldNotifySettled(input: ShouldNotifySettledInput): boolean {
 
 // --- Delivery -------------------------------------------------------------
 
-/** Deliver the popup plus the ambient bell and window-title cue. */
+/** Deliver the popup and set the window-title cue.
+ *
+ * No bell: iTerm (and other terminals that turn BEL into a notification) would
+ * show a second notification alongside the popup - see #45. The popup and the
+ * title are the only cues. */
 function notify(ctx: ExtensionContext, payload: NotifyPayload): void {
   const popup = pickPopupChannel();
   if (popup) {
@@ -129,7 +126,6 @@ function notify(ctx: ExtensionContext, payload: NotifyPayload): void {
       // Fire-and-forget: never let a notification disturb the session.
     }
   }
-  ringBell();
   ctx.ui.setTitle(`Pi: ${payload.body}`);
 }
 
