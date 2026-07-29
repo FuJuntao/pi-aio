@@ -20,8 +20,10 @@
  *
  * Pure routing/escaping logic lives in `select.ts`, `channels.ts`, and
  * `focus.ts`; this module owns the impure seams (spawning, probing, writing OSC,
- * the input listener) and the event wiring. `NotifyDeps` lets tests inject
- * fakes for those seams.
+ * the input listener) and the event wiring. Impure behavior is exercised
+ * end-to-end through pi's real runtime in `test/notify-e2e.test.ts` (loaded via
+ * `DefaultResourceLoader`, driven by the faux provider); the pure helpers are
+ * unit-tested directly. There is no test-injection seam here.
  *
  * Inspired by pi's `examples/extensions/notify.ts`, rewritten to fire on
  * `agent_settled` (not `agent_end`, which fires prematurely during auto-retry /
@@ -29,7 +31,6 @@
  * duration.
  */
 
-import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { env, platform, stdout } from "node:process";
 import {
@@ -39,7 +40,6 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-  type ChannelDeps,
   type ChannelKind,
   type NotifyChannel,
   type NotifyPayload,
@@ -55,34 +55,12 @@ import {
 } from "./focus.ts";
 import { choosePopupKind, desktopPlatform } from "./select.ts";
 
-/** Impure seams. Tests inject fakes; production uses the real defaults. */
-export interface NotifyDeps {
-  readonly loadConfig: (cwd: string) => LoadedConfig;
-  readonly pickPopupChannel: () => NotifyChannel | undefined;
-  readonly ringBell: () => void;
-  /** Write a raw OSC control sequence to the terminal (e.g. focus-reporting enable). */
-  readonly writeOsc: (data: string) => void;
-}
-
-// --- Real impure implementations ------------------------------------------
-
-function realSpawnDetached(cmd: string, args: readonly string[]): void {
-  spawn(cmd, args, { stdio: "ignore", detached: true })
-    .on("error", () => {
-      // A missing or failing binary must not disturb the session.
-    })
-    .unref();
-}
-
-function realProbe(cmd: string, args: readonly string[]): boolean {
-  const result = spawnSync(cmd, args, { stdio: "ignore", timeout: 2_000 });
-  return result.error === undefined && typeof result.status === "number";
-}
+// --- Impure seams (real implementations) ----------------------------------
 
 /**
  * Read `/proc/version`, or undefined when unreadable (non-Linux or missing).
- * Impure seam: `desktopPlatform` (in `select.ts`) takes this as an injected
- * reader so the WSL check is unit-testable without touching the filesystem.
+ * Fed to `desktopPlatform` so the WSL check resolves without a filesystem hit at
+ * module load.
  */
 function readProcVersion(): string | undefined {
   try {
@@ -92,18 +70,8 @@ function readProcVersion(): string | undefined {
   }
 }
 
-function realChannelDeps(): ChannelDeps {
-  return {
-    spawn: realSpawnDetached,
-    probe: realProbe,
-    write: (data) => {
-      stdout.write(data);
-    },
-  };
-}
-
-function realPickPopupChannel(): NotifyChannel | undefined {
-  const channels = createChannels(realChannelDeps());
+function pickPopupChannel(): NotifyChannel | undefined {
+  const channels = createChannels();
   const kind = choosePopupKind({
     env,
     platform: desktopPlatform({ platform, readProcVersion }),
@@ -113,27 +81,18 @@ function realPickPopupChannel(): NotifyChannel | undefined {
   return kind ? channels[kind] : undefined;
 }
 
-function realRingBell(): void {
+function ringBell(): void {
   if (stdout.isTTY) {
     stdout.write("\x07");
   }
 }
 
-function realWriteOsc(data: string): void {
+function writeOsc(data: string): void {
   stdout.write(data);
 }
 
-function realLoadConfig(cwd: string): LoadedConfig {
+function loadNotifyConfig(cwd: string): LoadedConfig {
   return loadConfig({ cwd, globalDir: getAgentDir(), configDirName: CONFIG_DIR_NAME });
-}
-
-function defaultDeps(): NotifyDeps {
-  return {
-    loadConfig: realLoadConfig,
-    pickPopupChannel: realPickPopupChannel,
-    ringBell: realRingBell,
-    writeOsc: realWriteOsc,
-  };
 }
 
 // --- Pure gating ----------------------------------------------------------
@@ -161,8 +120,8 @@ export function shouldNotifySettled(input: ShouldNotifySettledInput): boolean {
 // --- Delivery -------------------------------------------------------------
 
 /** Deliver the popup plus the ambient bell and window-title cue. */
-function notify(ctx: ExtensionContext, payload: NotifyPayload, deps: NotifyDeps): void {
-  const popup = deps.pickPopupChannel();
+function notify(ctx: ExtensionContext, payload: NotifyPayload): void {
+  const popup = pickPopupChannel();
   if (popup) {
     try {
       popup.send(payload);
@@ -170,30 +129,20 @@ function notify(ctx: ExtensionContext, payload: NotifyPayload, deps: NotifyDeps)
       // Fire-and-forget: never let a notification disturb the session.
     }
   }
-  deps.ringBell();
+  ringBell();
   ctx.ui.setTitle(`Pi: ${payload.body}`);
 }
 
 // --- Extension factory ----------------------------------------------------
 
-export default function notifyExtension(
-  pi: Pick<ExtensionAPI, "on">,
-  deps?: Partial<NotifyDeps>,
-): void {
-  const base = defaultDeps();
-  const d: NotifyDeps = {
-    loadConfig: deps?.loadConfig ?? base.loadConfig,
-    pickPopupChannel: deps?.pickPopupChannel ?? base.pickPopupChannel,
-    ringBell: deps?.ringBell ?? base.ringBell,
-    writeOsc: deps?.writeOsc ?? base.writeOsc,
-  };
+export default function notifyExtension(pi: Pick<ExtensionAPI, "on">): void {
   let enabled = true;
   let focusState: FocusState = INITIAL_FOCUS_STATE;
   let unsubscribeInput: (() => void) | undefined;
   let focusReportingOn = false;
 
   pi.on("session_start", (_event, ctx) => {
-    const config = d.loadConfig(ctx.cwd);
+    const config = loadNotifyConfig(ctx.cwd);
     enabled = config.enabled;
     if (config.warning) {
       ctx.ui.notify(config.warning, "warning");
@@ -210,7 +159,7 @@ export default function notifyExtension(
       unsubscribeInput = undefined;
     }
     focusState = INITIAL_FOCUS_STATE;
-    d.writeOsc(FOCUS_REPORT_ENABLE);
+    writeOsc(FOCUS_REPORT_ENABLE);
     focusReportingOn = true;
     unsubscribeInput = ctx.ui.onTerminalInput((data) => {
       const step = stepFocus(focusState, data);
@@ -225,7 +174,7 @@ export default function notifyExtension(
       unsubscribeInput = undefined;
     }
     if (focusReportingOn) {
-      d.writeOsc(FOCUS_REPORT_DISABLE);
+      writeOsc(FOCUS_REPORT_DISABLE);
       focusReportingOn = false;
     }
     focusState = INITIAL_FOCUS_STATE;
@@ -241,6 +190,6 @@ export default function notifyExtension(
     ) {
       return;
     }
-    notify(ctx, { title: "Pi", body: "Finished - waiting for input" }, d);
+    notify(ctx, { title: "Pi", body: "Finished - waiting for input" });
   });
 }

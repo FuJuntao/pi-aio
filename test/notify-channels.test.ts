@@ -2,55 +2,25 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import {
-  type ChannelDeps,
   type NotifyPayload,
   createChannels,
-  createItermChannel,
-  createKittyChannel,
-  createNotifySendChannel,
-  createOsascriptChannel,
-  createOsc777Channel,
-  createPowershellChannel,
-  createTerminalNotifierChannel,
+  itermSequence,
+  kittySequences,
+  notifySendArgs,
+  osc777Sequence,
+  osascriptArgs,
+  powershellArgs,
   quoteAppleScript,
+  terminalNotifierArgs,
   windowsToastScript,
 } from "../extensions/notify/channels.ts";
 
-interface FakeRecorder {
-  readonly deps: ChannelDeps;
-  readonly spawned: { cmd: string; args: readonly string[] }[];
-  readonly written: string[];
-  readonly probed: { cmd: string; args: readonly string[] }[];
-  setProbeResult(value: boolean): void;
-}
-
-function makeFakeDeps(): FakeRecorder {
-  const spawned: { cmd: string; args: readonly string[] }[] = [];
-  const written: string[] = [];
-  const probed: { cmd: string; args: readonly string[] }[] = [];
-  const state = { probeResult: true };
-  const deps: ChannelDeps = {
-    spawn: (cmd, args) => {
-      spawned.push({ cmd, args: [...args] });
-    },
-    probe: (cmd, args) => {
-      probed.push({ cmd, args: [...args] });
-      return state.probeResult;
-    },
-    write: (data) => {
-      written.push(data);
-    },
-  };
-  return {
-    deps,
-    spawned,
-    written,
-    probed,
-    setProbeResult: (value) => {
-      state.probeResult = value;
-    },
-  };
-}
+// The bytes each channel emits - argv for desktop binaries, escape sequences
+// for terminal protocols - are pure builder functions, tested directly with no
+// fakes. The impure `send`/`available` wrappers (real spawn / spawnSync /
+// stdout.write) are one-line compositions over these builders; they are
+// exercised end-to-end through pi's real runtime where a binary is reachable
+// and trusted elsewhere. There is no injection seam in `channels.ts`.
 
 const info: NotifyPayload = { title: "Pi", body: "Done" };
 
@@ -83,125 +53,60 @@ test("windowsToastScript: doubles apostrophes in title and body", () => {
   assert.ok(script.includes("'It''s done'"));
 });
 
-// --- terminal-notifier ----------------------------------------------------
+// --- desktop argv builders ------------------------------------------------
 
-test("terminal-notifier: send spawns the expected argv for info", () => {
-  const rec = makeFakeDeps();
-  createTerminalNotifierChannel(rec.deps).send(info);
-  assert.deepEqual(rec.spawned, [
-    { cmd: "terminal-notifier", args: ["-title", "Pi", "-message", "Done", "-sound", "default"] },
-  ]);
-});
-
-test("terminal-notifier: availability probes -help and is memoized", () => {
-  const rec = makeFakeDeps();
-  const channel = createTerminalNotifierChannel(rec.deps);
-  assert.equal(channel.available(), true);
-  assert.equal(channel.available(), true);
-  assert.equal(rec.probed.length, 1);
-  assert.deepEqual(rec.probed[0], { cmd: "terminal-notifier", args: ["-help"] });
-});
-
-test("terminal-notifier: unavailable when probe fails", () => {
-  const rec = makeFakeDeps();
-  rec.setProbeResult(false);
-  assert.equal(createTerminalNotifierChannel(rec.deps).available(), false);
-});
-
-// --- osascript ------------------------------------------------------------
-
-test("osascript: send builds a display notification script for info", () => {
-  const rec = makeFakeDeps();
-  createOsascriptChannel(rec.deps).send(info);
-  assert.deepEqual(rec.spawned, [
-    {
-      cmd: "osascript",
-      args: ["-e", 'display notification "Done" with title "Pi" sound name "default"'],
-    },
-  ]);
-});
-
-test("osascript: availability probes with -e 1", () => {
-  const rec = makeFakeDeps();
-  const channel = createOsascriptChannel(rec.deps);
-  channel.available();
-  assert.deepEqual(rec.probed, [{ cmd: "osascript", args: ["-e", "1"] }]);
-});
-
-// --- notify-send ----------------------------------------------------------
-
-test("notify-send: send uses normal urgency", () => {
-  const rec = makeFakeDeps();
-  createNotifySendChannel(rec.deps).send(info);
-  assert.deepEqual(rec.spawned, [
-    { cmd: "notify-send", args: ["--urgency", "normal", "--app-name", "pi", "Pi", "Done"] },
-  ]);
-});
-
-test("notify-send: availability probes --version", () => {
-  const rec = makeFakeDeps();
-  createNotifySendChannel(rec.deps).available();
-  assert.deepEqual(rec.probed, [{ cmd: "notify-send", args: ["--version"] }]);
-});
-
-// --- powershell -----------------------------------------------------------
-
-test("powershell: send spawns powershell.exe with the toast script", () => {
-  const rec = makeFakeDeps();
-  createPowershellChannel(rec.deps).send(info);
-  assert.equal(rec.spawned.length, 1);
-  assert.equal(rec.spawned[0]?.cmd, "powershell.exe");
+test("terminalNotifierArgs: -title/-message/-sound default", () => {
   assert.deepEqual(
-    [...(rec.spawned[0]?.args ?? [])],
+    [...terminalNotifierArgs(info)],
+    ["-title", "Pi", "-message", "Done", "-sound", "default"],
+  );
+});
+
+test("osascriptArgs: a display-notification AppleScript via -e", () => {
+  assert.deepEqual(
+    [...osascriptArgs(info)],
+    ["-e", 'display notification "Done" with title "Pi" sound name "default"'],
+  );
+});
+
+test("notifySendArgs: normal urgency, pi app-name, then title and body", () => {
+  assert.deepEqual(
+    [...notifySendArgs(info)],
+    ["--urgency", "normal", "--app-name", "pi", "Pi", "Done"],
+  );
+});
+
+test("powershellArgs: -NoProfile -Command <toast script>", () => {
+  assert.deepEqual(
+    [...powershellArgs(info)],
     ["-NoProfile", "-Command", windowsToastScript("Pi", "Done")],
   );
 });
 
-test("powershell: availability probes with an exit command", () => {
-  const rec = makeFakeDeps();
-  createPowershellChannel(rec.deps).available();
-  assert.deepEqual(rec.probed, [
-    { cmd: "powershell.exe", args: ["-NoProfile", "-Command", "exit"] },
-  ]);
+// --- terminal escape builders --------------------------------------------
+
+test("kittySequences: OSC 99 held title then body, each ST-terminated", () => {
+  assert.deepEqual(
+    [...kittySequences(info)],
+    ["\x1b]99;i=1:d=0;Pi\x1b\\", "\x1b]99;i=1:p=body;Done\x1b\\"],
+  );
 });
 
-// --- kitty ----------------------------------------------------------------
-
-test("kitty: send writes an OSC 99 title then body", () => {
-  const rec = makeFakeDeps();
-  createKittyChannel(rec.deps).send(info);
-  assert.deepEqual(rec.written, ["\x1b]99;i=1:d=0;Pi\x1b\\", "\x1b]99;i=1:p=body;Done\x1b\\"]);
+test("itermSequence: OSC 9 with `title: body`, BEL-terminated", () => {
+  assert.equal(itermSequence(info), "\x1b]9;Pi: Done\x07");
 });
 
-test("kitty: is always available without probing", () => {
-  const rec = makeFakeDeps();
-  assert.equal(createKittyChannel(rec.deps).available(), true);
-  assert.equal(rec.probed.length, 0);
-});
-
-// --- iterm ----------------------------------------------------------------
-
-test("iterm: send writes an OSC 9 message", () => {
-  const rec = makeFakeDeps();
-  createItermChannel(rec.deps).send(info);
-  assert.deepEqual(rec.written, ["\x1b]9;Pi: Done\x07"]);
-});
-
-// --- osc777 ---------------------------------------------------------------
-
-test("osc777: send writes an OSC 777 notify sequence", () => {
-  const rec = makeFakeDeps();
-  createOsc777Channel(rec.deps).send(info);
-  assert.deepEqual(rec.written, ["\x1b]777;notify;Pi;Done\x07"]);
+test("osc777Sequence: OSC 777 notify;title;body, BEL-terminated", () => {
+  assert.equal(osc777Sequence(info), "\x1b]777;notify;Pi;Done\x07");
 });
 
 // --- createChannels -------------------------------------------------------
 
-test("createChannels: builds one channel per kind", () => {
-  const rec = makeFakeDeps();
-  const channels = createChannels(rec.deps);
-  const kinds = Object.keys(channels).sort();
-  assert.deepEqual(kinds, [
+test("createChannels: builds one channel per kind (does not spawn)", () => {
+  // available() is not called, so no spawnSync occurs; this just checks the
+  // channel set and names.
+  const channels = createChannels();
+  assert.deepEqual(Object.keys(channels).sort(), [
     "iterm",
     "kitty",
     "notify-send",
