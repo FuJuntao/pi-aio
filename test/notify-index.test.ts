@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import type { NotifyPayload } from "./channels.ts";
-import { FOCUS_REPORT_DISABLE, FOCUS_REPORT_ENABLE } from "./focus.ts";
-import notifyExtension, { type NotifyDeps, shouldNotifySettled } from "./index.ts";
+import type { NotifyPayload } from "../extensions/notify/channels.ts";
+import { FOCUS_REPORT_DISABLE, FOCUS_REPORT_ENABLE } from "../extensions/notify/focus.ts";
+import notifyExtension, {
+  type NotifyDeps,
+  shouldNotifySettled,
+} from "../extensions/notify/index.ts";
 
 // --- Pure gating ----------------------------------------------------------
 

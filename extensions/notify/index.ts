@@ -53,7 +53,7 @@ import {
   type FocusState,
   stepFocus,
 } from "./focus.ts";
-import { choosePopupKind } from "./select.ts";
+import { choosePopupKind, desktopPlatform } from "./select.ts";
 
 /** Impure seams. Tests inject fakes; production uses the real defaults. */
 export interface NotifyDeps {
@@ -80,30 +80,16 @@ function realProbe(cmd: string, args: readonly string[]): boolean {
 }
 
 /**
- * Whether this Linux process is really running under WSL, where `powershell.exe`
- * is reachable via interop and can fire a native Windows toast. Detected from
- * `/proc/version`, which mentions "microsoft" on both WSL 1 and WSL 2 - the
- * same check the `is-wsl` package and many others use. Non-Linux platforms and
- * a missing/unreadable file return false.
+ * Read `/proc/version`, or undefined when unreadable (non-Linux or missing).
+ * Impure seam: `desktopPlatform` (in `select.ts`) takes this as an injected
+ * reader so the WSL check is unit-testable without touching the filesystem.
  */
-function detectWsl(): boolean {
-  if (platform !== "linux") return false;
+function readProcVersion(): string | undefined {
   try {
-    return /microsoft/i.test(readFileSync("/proc/version", "utf8"));
+    return readFileSync("/proc/version", "utf8");
   } catch {
-    return false;
+    return undefined;
   }
-}
-
-/**
- * The platform to use for desktop-channel selection. WSL reports "linux" but
- * its desktop is Windows (`powershell.exe` is reachable via interop, with no
- * Linux display server unless WSLg), so resolve it to "win32" - otherwise it
- * would try `notify-send` (absent) and fall through to OSC 777, which Windows
- * Terminal does not support in stable, producing no notification at all.
- */
-function desktopPlatform(): string {
-  return detectWsl() && platform === "linux" ? "win32" : platform;
 }
 
 function realChannelDeps(): ChannelDeps {
@@ -120,7 +106,7 @@ function realPickPopupChannel(): NotifyChannel | undefined {
   const channels = createChannels(realChannelDeps());
   const kind = choosePopupKind({
     env,
-    platform: desktopPlatform(),
+    platform: desktopPlatform({ platform, readProcVersion }),
     isTTY: Boolean(stdout.isTTY),
     desktopAvailable: (k: ChannelKind) => channels[k].available(),
   });

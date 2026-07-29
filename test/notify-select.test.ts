@@ -5,9 +5,10 @@ import {
   chooseDesktopKind,
   choosePopupKind,
   chooseTerminalKind,
+  desktopPlatform,
   desktopSessionPresent,
   isOverSsh,
-} from "./select.ts";
+} from "../extensions/notify/select.ts";
 
 const env = (entries: Record<string, string>): Record<string, string | undefined> => entries;
 
@@ -187,9 +188,10 @@ test("choosePopupKind: local with no TTY and no desktop binary has no channel", 
   assert.equal(kind, undefined);
 });
 
-// WSL reports `platform === "linux"` but is resolved to "win32" for desktop
-// selection in `index.ts` (via `detectWsl`), so the path it exercises is the
-// win32 one below rather than the linux ones above.
+// WSL reports `platform === "linux"` but `desktopPlatform` (tested below)
+// resolves it to "win32" for desktop selection, so the win32 choosePopupKind
+// cases below exercise the post-resolution value rather than the linux ones
+// above.
 
 test("choosePopupKind: win32 with powershell available uses the Windows toast", () => {
   const kind = choosePopupKind({
@@ -219,4 +221,32 @@ test("choosePopupKind: win32 over SSH uses the terminal protocol, not the host t
     desktopAvailable: available(["powershell"]),
   });
   assert.equal(kind, "osc777");
+});
+
+// --- desktopPlatform (WSL resolution) ------------------------------------
+
+test("desktopPlatform: non-linux platforms pass through unchanged", () => {
+  const read = () => "Linux version ... microsoft ...";
+  assert.equal(desktopPlatform({ platform: "darwin", readProcVersion: read }), "darwin");
+  assert.equal(desktopPlatform({ platform: "win32", readProcVersion: read }), "win32");
+  assert.equal(desktopPlatform({ platform: "freebsd", readProcVersion: read }), "freebsd");
+});
+
+test("desktopPlatform: linux under WSL (proc/version mentions microsoft) resolves to win32", () => {
+  const read = () => "Linux version 5.15.153.1-microsoft-standard-WSL2 ...";
+  assert.equal(desktopPlatform({ platform: "linux", readProcVersion: read }), "win32");
+});
+
+test("desktopPlatform: microsoft match is case-insensitive", () => {
+  const read = () => "Linux version ... Microsoft ...";
+  assert.equal(desktopPlatform({ platform: "linux", readProcVersion: read }), "win32");
+});
+
+test("desktopPlatform: native linux (no microsoft in proc/version) stays linux", () => {
+  const read = () => "Linux version 6.8.0-generic ...";
+  assert.equal(desktopPlatform({ platform: "linux", readProcVersion: read }), "linux");
+});
+
+test("desktopPlatform: linux with an unreadable proc/version stays linux", () => {
+  assert.equal(desktopPlatform({ platform: "linux", readProcVersion: () => undefined }), "linux");
 });

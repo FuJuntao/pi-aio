@@ -67,6 +67,34 @@ export function chooseDesktopKind(platform: string): readonly ChannelKind[] {
   }
 }
 
+/** Inputs to `desktopPlatform`. */
+export interface DesktopPlatformInput {
+  /** The raw `process.platform` value. */
+  readonly platform: string;
+  /**
+   * Reads `/proc/version` contents, or undefined when unreadable (non-Linux or
+   * a missing file). Injected so the WSL check is unit-testable without a
+   * filesystem.
+   */
+  readonly readProcVersion: () => string | undefined;
+}
+
+/**
+ * The platform to use for desktop-channel selection. WSL reports `"linux"` but
+ * its desktop is Windows (`powershell.exe` is reachable via interop, with no
+ * Linux display server unless WSLg), so resolve it to `"win32"` - otherwise
+ * `choosePopupKind` would try `notify-send` (absent) and fall through to OSC
+ * 777, which Windows Terminal does not support in stable, producing no
+ * notification. Detected from `/proc/version`, which mentions "microsoft" on
+ * WSL 1 and 2. Pure over its inputs; the caller injects the file read.
+ */
+export function desktopPlatform(input: DesktopPlatformInput): string {
+  if (input.platform !== "linux") return input.platform;
+  const procVersion = input.readProcVersion();
+  if (procVersion === undefined) return input.platform;
+  return /microsoft/i.test(procVersion) ? "win32" : input.platform;
+}
+
 /** Inputs to `choosePopupKind`. */
 export interface PopupSelectionInput {
   readonly env: Record<string, string | undefined>;

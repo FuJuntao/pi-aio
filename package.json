@@ -14,7 +14,6 @@
     "extensions/",
     "!extensions/**/*.test.ts",
     "!extensions/**/*.spec.ts",
-    "!extensions/**/_*.ts",
     "skills/",
     "prompts/",
     "themes/",

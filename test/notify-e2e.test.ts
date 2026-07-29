@@ -1,13 +1,14 @@
 import { fileURLToPath } from "node:url";
 
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type ExtensionSession, createExtensionSession } from "./_harness.ts";
+import { type ExtensionSession, createExtensionSession } from "./notify-harness.ts";
 
-// The notify extension lives next to this test file (`extensions/notify/index.ts`).
-// Passing the directory loads `index.ts` as a single extension entry; sibling
-// `*.test.ts` files are ignored by the loader's `resolveExtensionEntries`.
-const extensionPath = fileURLToPath(new URL(".", import.meta.url));
+// The notify extension lives at `extensions/notify/index.ts`. Passing its
+// directory loads `index.ts` as a single extension entry; sibling files are
+// ignored by the loader's `resolveExtensionEntries`.
+const extensionPath = fileURLToPath(new URL("../extensions/notify/", import.meta.url));
 
 describe("notify extension (e2e via real pi runtime)", () => {
   let s: ExtensionSession | undefined;
@@ -52,6 +53,26 @@ describe("notify extension (e2e via real pi runtime)", () => {
 
     expect(s.eventsOfType("agent_settled").length).toBeGreaterThan(0);
     expect(s.ui.titles).toHaveLength(0);
+  });
+
+  it("re-fires after the user steps away (focus-out re-opens the gate)", async () => {
+    // Two turns: focus-in suppresses the first settle; a focus-out makes the
+    // focus state known + unfocused, so the second settle fires again.
+    s = await createExtensionSession({
+      extensionPath,
+      responses: [fauxAssistantMessage("one"), fauxAssistantMessage("two")],
+    });
+
+    s.ui.sendInput("\x1b[I");
+    await s.session.prompt("hi");
+    await s.session.waitForIdle();
+    expect(s.ui.titles).toHaveLength(0);
+
+    s.ui.sendInput("\x1b[O");
+    await s.session.prompt("again");
+    await s.session.waitForIdle();
+    expect(s.ui.titles).toHaveLength(1);
+    expect(s.ui.titles[0]).toMatch(/Finished/);
   });
 
   it("suppresses all notifications when disabled by config", async () => {
