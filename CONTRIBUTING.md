@@ -62,7 +62,7 @@ Run from the repo root:
 | `pnpm format`       | Format all files in place (oxfmt).               |
 | `pnpm format:check` | Check formatting without writing (used by CI).   |
 | `pnpm typecheck`    | Type-check (`tsc --noEmit`).                     |
-| `pnpm test`         | Run unit tests (`node --test`).                  |
+| `pnpm test`         | Run tests (vitest).                              |
 | `pnpm changeset`    | Add a changeset (describe a user-facing change). |
 | `pnpm version`      | Apply changesets -> bump versions & changelogs.  |
 | `pnpm release`      | Publish the package.                             |
@@ -215,6 +215,72 @@ paths in the `pi` manifest:
 
 Pi loads packages with separate module roots, so bundled packages do not collide
 or share modules.
+
+## Testing extensions
+
+Tests run on [vitest](https://vitest.dev) (`pnpm test` -> `vitest run`), in CI
+with no secrets. Config lives in [`vitest.config.ts`](vitest.config.ts): node
+environment, explicit imports (no reliance on globals despite `globals: true`),
+file-per-process isolation, offline-by-default, and a 30s timeout for sessions.
+
+Tests live in a flat [`test/`](test/) directory (not co-located with source),
+organized by **behavior domain**, not one file per source module - e.g.
+`test/notify-e2e.test.ts` (real-runtime behaviors),
+`test/notify-selection.test.ts` (the platform -> channel matrix),
+`test/notify-channels.test.ts` (per-channel argv/escape bytes),
+`test/notify-focus.test.ts` (focus-sequence parsing), `test/notify-config.test.ts`
+(config merge/warnings), `test/notify-gating.test.ts` (the settle-gating truth
+table). The `test/` tree is outside the `files` allowlist, so it never ships in
+the npm tarball. Import `{ test }` (or `describe` / `it` / `expect`) from
+`vitest` explicitly so oxlint never sees undefined globals.
+
+The guiding principle is **test each behavior at the highest level that can
+still observe it**: drive impure behavior through the real runtime, and reach
+for a pure test only when the runtime can't see the detail (exact argv/escape
+bytes, parser chunking, config merge, a platform the test host doesn't run).
+There is no test-injection seam in production code - the notify extension's
+`notifyExtension(pi)` takes only the pi handle.
+
+- **E2E tests** (`test/notify-e2e.test.ts`) load the extension through pi's real
+  runtime and assert the behaviors a user would see - session lifecycle (OSC
+  1004 focus-reporting enable/disable, input listener wiring, non-TUI mode,
+  `/reload` config re-read), settled-notification gating (fires when focus is
+  unknown, suppressed while focused, re-fires after focus-out, silenced when
+  disabled), and config warnings. They use the `createExtensionSession` helper
+  in [`test/harness/`](test/harness/), which builds an
+  in-memory `AgentSession` with `DefaultResourceLoader({
+additionalExtensionPaths })` + `fauxProvider` (scripted responses, no API keys,
+  no network), injects a recording `ctx.ui` via `session.bindExtensions({
+uiContext, mode })` to capture `setTitle` / `notify` / `onTerminalInput`,
+  spies on `process.stdout.write` to capture raw OSC/bell writes the extension
+  makes directly, and records session events via `session.subscribe`. The
+  harness is generic (not notify-specific): `createExtensionSession` loads any
+  extension by path, and the pieces it composes - `createFauxRuntime`
+  ([`test/harness/faux-runtime.ts`](test/harness/faux-runtime.ts)) and the
+  recording-UI + stdout-capture helpers
+  ([`test/harness/recording-ui.ts`](test/harness/recording-ui.ts)) - are
+  reusable on their own.
+- **Pure tests** cover logic the runtime can't observe: the platform -> channel
+  matrix (`notify-selection.test.ts`, a `test.each` table mirroring the README's
+  "How it notifies" section, with WSL folded in end-to-end), per-channel argv
+  and escape sequences (`notify-channels.test.ts` - the pure builder functions
+  `terminalNotifierArgs` / `kittySequences` / ..., asserted directly with no
+  fakes), focus-sequence parsing (`notify-focus.test.ts`), config merge/warnings
+  (`notify-config.test.ts`), and the settle-gating truth table
+  (`notify-gating.test.ts`). These take `platform` / `env` / `isTTY` / etc. as
+  arguments, so no env or module stubbing is needed.
+
+To add tests for a new extension, add `test/<extension>-*.test.ts` files and
+reuse `createExtensionSession({ extensionPath, responses?, configFiles?,
+rawProjectFiles?, mode? })` from [`test/harness/`](test/harness/) for e2e - pass the
+extension's source directory (a dir with `index.ts` loads as one entry), script
+the model with `faux.setResponses([...])`, drive with `session.prompt()` +
+`waitForIdle()`, and assert on `ui.titles` / `ui.notifies` / `ui.stdoutWrites` /
+`eventsOfType(...)`. Use `s.writeProjectFile(".pi/<name>.json", ...)` to flip
+config mid-session and `s.session.reload()` to exercise `/reload` (assert
+lifecycle side effects only - reload resets the api-registry, retiring the faux
+provider, so don't prompt after it). `await cleanup()` in `afterEach` disposes
+the session, temp dirs, and the stdout spy.
 
 ## Conventional commits
 

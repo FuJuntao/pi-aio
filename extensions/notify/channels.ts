@@ -3,13 +3,20 @@
  *
  * A channel is a delivery mechanism for a popup notification - a native
  * desktop binary (terminal-notifier, osascript, notify-send, powershell) or a
- * terminal escape sequence (Kitty OSC 99, iTerm2 OSC 9, generic OSC 777). This
- * module defines the `NotifyChannel` interface, pure helpers for the command
- * strings each backend needs, and factory functions that wire real (or fake)
- * spawn/probe/write implementations. Keeping the impure seams injectable is
- * what lets `channels.test.ts` assert exact argv and escape sequences without
- * ever spawning a real process.
+ * terminal escape sequence (Kitty OSC 99, iTerm2 OSC 9, generic OSC 777).
+ *
+ * The interesting logic - the exact argv each desktop binary is spawned with
+ * and the exact escape bytes each terminal protocol writes - lives in **pure
+ * builder functions** (`terminalNotifierArgs`, `osascriptArgs`, `kittySequences`,
+ * ...), unit-tested directly with no fakes. The `NotifyChannel.send` /
+ * `available` methods are thin impure wrappers over `child_process` /
+ * `process.stdout` that hand those builders' output to the OS; they are one-line
+ * compositions, exercised end-to-end through pi's real runtime where a binary is
+ * reachable and trusted elsewhere. There is no injection seam here.
  */
+
+import { spawn, spawnSync } from "node:child_process";
+import { stdout } from "node:process";
 
 /** Payload delivered to a channel. */
 export interface NotifyPayload {
@@ -34,17 +41,7 @@ export type ChannelKind =
   | "iterm"
   | "osc777";
 
-/** Impure seams injected into channel factories. */
-export interface ChannelDeps {
-  /** Fire a command without blocking or keeping the event loop alive. */
-  readonly spawn: (cmd: string, args: readonly string[]) => void;
-  /** Probe whether a command exists on PATH. */
-  readonly probe: (cmd: string, args: readonly string[]) => boolean;
-  /** Write raw bytes to the terminal (OSC sequences). */
-  readonly write: (data: string) => void;
-}
-
-// --- Pure helpers ---------------------------------------------------------
+// --- Pure builders --------------------------------------------------------
 
 /** Quote a string for an AppleScript double-quoted literal. */
 export function quoteAppleScript(value: string): string {
@@ -64,110 +61,158 @@ export function windowsToastScript(title: string, body: string): string {
   ].join("; ");
 }
 
-// --- Memoized availability ------------------------------------------------
+/** argv for `terminal-notifier`. */
+export function terminalNotifierArgs({ title, body }: NotifyPayload): readonly string[] {
+  return ["-title", title, "-message", body, "-sound", "default"];
+}
 
-function memoizeAvailability(
-  deps: ChannelDeps,
-  cmd: string,
-  probeArgs: readonly string[],
-): () => boolean {
+/** argv for `osascript` (a `display notification` AppleScript via `-e`). */
+export function osascriptArgs({ title, body }: NotifyPayload): readonly string[] {
+  const script =
+    `display notification ${quoteAppleScript(body)}` +
+    ` with title ${quoteAppleScript(title)}` +
+    ` sound name ${quoteAppleScript("default")}`;
+  return ["-e", script];
+}
+
+/** argv for `notify-send`. */
+export function notifySendArgs({ title, body }: NotifyPayload): readonly string[] {
+  return ["--urgency", "normal", "--app-name", "pi", title, body];
+}
+
+/** argv for `powershell.exe` (the WinRT toast script via `-Command`). */
+export function powershellArgs({ title, body }: NotifyPayload): readonly string[] {
+  return ["-NoProfile", "-Command", windowsToastScript(title, body)];
+}
+
+/**
+ * Kitty OSC 99 sequences for a notification: a held title, then the body that
+ * completes it. Returned in write order.
+ */
+export function kittySequences({ title, body }: NotifyPayload): readonly string[] {
+  const st = "\x1b\\";
+  return [`\x1b]99;i=1:d=0;${title}${st}`, `\x1b]99;i=1:p=body;${body}${st}`];
+}
+
+/** iTerm2 OSC 9 sequence (a single `title: body` message). */
+export function itermSequence({ title, body }: NotifyPayload): string {
+  return `\x1b]9;${title}: ${body}\x07`;
+}
+
+/** Generic OSC 777 notify sequence (Ghostty, rxvt, WezTerm, ...). */
+export function osc777Sequence({ title, body }: NotifyPayload): string {
+  return `\x1b]777;notify;${title};${body}\x07`;
+}
+
+// --- Impure delivery ------------------------------------------------------
+
+function spawnDetached(cmd: string, args: readonly string[]): void {
+  spawn(cmd, args, { stdio: "ignore", detached: true })
+    .on("error", () => {
+      // A missing or failing binary must not disturb the session.
+    })
+    .unref();
+}
+
+function probeBinary(cmd: string, args: readonly string[]): boolean {
+  const result = spawnSync(cmd, args, { stdio: "ignore", timeout: 2_000 });
+  return result.error === undefined && typeof result.status === "number";
+}
+
+/** Probe once and cache: availability is queried per kind at startup and never
+ *  changes mid-session, so avoid repeated `spawnSync` calls. */
+function memoizeAvailability(cmd: string, probeArgs: readonly string[]): () => boolean {
   let cached: boolean | undefined;
   return () => {
-    if (cached === undefined) cached = deps.probe(cmd, probeArgs);
+    if (cached === undefined) cached = probeBinary(cmd, probeArgs);
     return cached;
   };
 }
 
 // --- Channel factories ----------------------------------------------------
 
-export function createTerminalNotifierChannel(deps: ChannelDeps): NotifyChannel {
+function createTerminalNotifierChannel(): NotifyChannel {
   return {
     name: "terminal-notifier",
-    available: memoizeAvailability(deps, "terminal-notifier", ["-help"]),
-    send({ title, body }) {
-      deps.spawn("terminal-notifier", ["-title", title, "-message", body, "-sound", "default"]);
+    available: memoizeAvailability("terminal-notifier", ["-help"]),
+    send: (payload) => {
+      spawnDetached("terminal-notifier", terminalNotifierArgs(payload));
     },
   };
 }
 
-export function createOsascriptChannel(deps: ChannelDeps): NotifyChannel {
+function createOsascriptChannel(): NotifyChannel {
   return {
     name: "osascript",
-    available: memoizeAvailability(deps, "osascript", ["-e", "1"]),
-    send({ title, body }) {
-      const script =
-        `display notification ${quoteAppleScript(body)}` +
-        ` with title ${quoteAppleScript(title)}` +
-        ` sound name ${quoteAppleScript("default")}`;
-      deps.spawn("osascript", ["-e", script]);
+    available: memoizeAvailability("osascript", ["-e", "1"]),
+    send: (payload) => {
+      spawnDetached("osascript", osascriptArgs(payload));
     },
   };
 }
 
-export function createNotifySendChannel(deps: ChannelDeps): NotifyChannel {
+function createNotifySendChannel(): NotifyChannel {
   return {
     name: "notify-send",
-    available: memoizeAvailability(deps, "notify-send", ["--version"]),
-    send({ title, body }) {
-      deps.spawn("notify-send", ["--urgency", "normal", "--app-name", "pi", title, body]);
+    available: memoizeAvailability("notify-send", ["--version"]),
+    send: (payload) => {
+      spawnDetached("notify-send", notifySendArgs(payload));
     },
   };
 }
 
-export function createPowershellChannel(deps: ChannelDeps): NotifyChannel {
+function createPowershellChannel(): NotifyChannel {
   return {
     name: "powershell",
-    available: memoizeAvailability(deps, "powershell.exe", ["-NoProfile", "-Command", "exit"]),
-    send({ title, body }) {
-      deps.spawn("powershell.exe", ["-NoProfile", "-Command", windowsToastScript(title, body)]);
+    available: memoizeAvailability("powershell.exe", ["-NoProfile", "-Command", "exit"]),
+    send: (payload) => {
+      spawnDetached("powershell.exe", powershellArgs(payload));
     },
   };
 }
 
-export function createKittyChannel(deps: ChannelDeps): NotifyChannel {
+function createKittyChannel(): NotifyChannel {
   return {
     name: "kitty",
     available: () => true,
-    send({ title, body }) {
-      // Kitty OSC 99: title (held) then body (completes the notification).
-      const st = "\x1b\\";
-      deps.write(`\x1b]99;i=1:d=0;${title}${st}`);
-      deps.write(`\x1b]99;i=1:p=body;${body}${st}`);
+    send: (payload) => {
+      for (const seq of kittySequences(payload)) {
+        stdout.write(seq);
+      }
     },
   };
 }
 
-export function createItermChannel(deps: ChannelDeps): NotifyChannel {
+function createItermChannel(): NotifyChannel {
   return {
     name: "iterm",
     available: () => true,
-    send({ title, body }) {
-      // iTerm2 OSC 9 takes a single message string.
-      deps.write(`\x1b]9;${title}: ${body}\x07`);
+    send: (payload) => {
+      stdout.write(itermSequence(payload));
     },
   };
 }
 
-export function createOsc777Channel(deps: ChannelDeps): NotifyChannel {
+function createOsc777Channel(): NotifyChannel {
   return {
     name: "osc777",
     available: () => true,
-    send({ title, body }) {
-      // Generic OSC 777 (Ghostty, rxvt, WezTerm, ...).
-      deps.write(`\x1b]777;notify;${title};${body}\x07`);
+    send: (payload) => {
+      stdout.write(osc777Sequence(payload));
     },
   };
 }
 
-/** Build all channel instances for a given set of impure deps. */
-export function createChannels(deps: ChannelDeps): Record<ChannelKind, NotifyChannel> {
+/** Build all channel instances. Desktop channels probe their binary on PATH;
+ *  terminal channels are always available. */
+export function createChannels(): Record<ChannelKind, NotifyChannel> {
   return {
-    "terminal-notifier": createTerminalNotifierChannel(deps),
-    osascript: createOsascriptChannel(deps),
-    "notify-send": createNotifySendChannel(deps),
-    powershell: createPowershellChannel(deps),
-    kitty: createKittyChannel(deps),
-    iterm: createItermChannel(deps),
-    osc777: createOsc777Channel(deps),
+    "terminal-notifier": createTerminalNotifierChannel(),
+    osascript: createOsascriptChannel(),
+    "notify-send": createNotifySendChannel(),
+    powershell: createPowershellChannel(),
+    kitty: createKittyChannel(),
+    iterm: createItermChannel(),
+    osc777: createOsc777Channel(),
   };
 }

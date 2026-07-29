@@ -27,12 +27,13 @@
     "format:check": "oxfmt --check",
     "lint": "oxlint --no-error-on-unmatched-pattern",
     "release": "changeset publish",
-    "test": "node --test",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "version": "changeset version && pnpm install --lockfile-only"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
+    "@earendil-works/pi-ai": "^0.82.1",
     "@tsconfig/node-lts": "^24.0.0",
     "@tsconfig/node-ts": "^23.6.4",
     "@tsconfig/strictest": "^2.0.8",
@@ -40,9 +41,11 @@
     "oxfmt": "^0.60.0",
     "oxlint": "^1.75.0",
     "oxlint-tsgolint": "^7.0.2001",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.9"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*"
   },
   "engines": {

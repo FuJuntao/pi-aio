@@ -4,8 +4,7 @@
  * Delivers cross-platform notifications when pi needs the user - when it settles
  * and is waiting for input (`agent_settled`). It auto-selects a native desktop
  * notification when local, or a terminal-protocol notification (OSC 777/9/99)
- * over SSH or when no desktop binary is present - plus a bell and window-title
- * cue.
+ * over SSH or when no desktop binary is present - plus a window-title cue.
  *
  * Gating: a "settled" notification fires only when the terminal is **not
  * focused** (the user has switched away). Focus is tracked via OSC 1004 focus
@@ -20,8 +19,10 @@
  *
  * Pure routing/escaping logic lives in `select.ts`, `channels.ts`, and
  * `focus.ts`; this module owns the impure seams (spawning, probing, writing OSC,
- * the input listener) and the event wiring. `NotifyDeps` lets tests inject
- * fakes for those seams.
+ * the input listener) and the event wiring. Impure behavior is exercised
+ * end-to-end through pi's real runtime in `test/notify-e2e.test.ts` (loaded via
+ * `DefaultResourceLoader`, driven by the faux provider); the pure helpers are
+ * unit-tested directly. There is no test-injection seam here.
  *
  * Inspired by pi's `examples/extensions/notify.ts`, rewritten to fire on
  * `agent_settled` (not `agent_end`, which fires prematurely during auto-retry /
@@ -29,7 +30,6 @@
  * duration.
  */
 
-import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { env, platform, stdout } from "node:process";
 import {
@@ -39,7 +39,6 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-  type ChannelDeps,
   type ChannelKind,
   type NotifyChannel,
   type NotifyPayload,
@@ -53,101 +52,40 @@ import {
   type FocusState,
   stepFocus,
 } from "./focus.ts";
-import { choosePopupKind } from "./select.ts";
+import { choosePopupKind, desktopPlatform } from "./select.ts";
 
-/** Impure seams. Tests inject fakes; production uses the real defaults. */
-export interface NotifyDeps {
-  readonly loadConfig: (cwd: string) => LoadedConfig;
-  readonly pickPopupChannel: () => NotifyChannel | undefined;
-  readonly ringBell: () => void;
-  /** Write a raw OSC control sequence to the terminal (e.g. focus-reporting enable). */
-  readonly writeOsc: (data: string) => void;
-}
-
-// --- Real impure implementations ------------------------------------------
-
-function realSpawnDetached(cmd: string, args: readonly string[]): void {
-  spawn(cmd, args, { stdio: "ignore", detached: true })
-    .on("error", () => {
-      // A missing or failing binary must not disturb the session.
-    })
-    .unref();
-}
-
-function realProbe(cmd: string, args: readonly string[]): boolean {
-  const result = spawnSync(cmd, args, { stdio: "ignore", timeout: 2_000 });
-  return result.error === undefined && typeof result.status === "number";
-}
+// --- Impure seams (real implementations) ----------------------------------
 
 /**
- * Whether this Linux process is really running under WSL, where `powershell.exe`
- * is reachable via interop and can fire a native Windows toast. Detected from
- * `/proc/version`, which mentions "microsoft" on both WSL 1 and WSL 2 - the
- * same check the `is-wsl` package and many others use. Non-Linux platforms and
- * a missing/unreadable file return false.
+ * Read `/proc/version`, or undefined when unreadable (non-Linux or missing).
+ * Fed to `desktopPlatform` so the WSL check resolves without a filesystem hit at
+ * module load.
  */
-function detectWsl(): boolean {
-  if (platform !== "linux") return false;
+function readProcVersion(): string | undefined {
   try {
-    return /microsoft/i.test(readFileSync("/proc/version", "utf8"));
+    return readFileSync("/proc/version", "utf8");
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-/**
- * The platform to use for desktop-channel selection. WSL reports "linux" but
- * its desktop is Windows (`powershell.exe` is reachable via interop, with no
- * Linux display server unless WSLg), so resolve it to "win32" - otherwise it
- * would try `notify-send` (absent) and fall through to OSC 777, which Windows
- * Terminal does not support in stable, producing no notification at all.
- */
-function desktopPlatform(): string {
-  return detectWsl() && platform === "linux" ? "win32" : platform;
-}
-
-function realChannelDeps(): ChannelDeps {
-  return {
-    spawn: realSpawnDetached,
-    probe: realProbe,
-    write: (data) => {
-      stdout.write(data);
-    },
-  };
-}
-
-function realPickPopupChannel(): NotifyChannel | undefined {
-  const channels = createChannels(realChannelDeps());
+function pickPopupChannel(): NotifyChannel | undefined {
+  const channels = createChannels();
   const kind = choosePopupKind({
     env,
-    platform: desktopPlatform(),
+    platform: desktopPlatform({ platform, readProcVersion }),
     isTTY: Boolean(stdout.isTTY),
     desktopAvailable: (k: ChannelKind) => channels[k].available(),
   });
   return kind ? channels[kind] : undefined;
 }
 
-function realRingBell(): void {
-  if (stdout.isTTY) {
-    stdout.write("\x07");
-  }
-}
-
-function realWriteOsc(data: string): void {
+function writeOsc(data: string): void {
   stdout.write(data);
 }
 
-function realLoadConfig(cwd: string): LoadedConfig {
+function loadNotifyConfig(cwd: string): LoadedConfig {
   return loadConfig({ cwd, globalDir: getAgentDir(), configDirName: CONFIG_DIR_NAME });
-}
-
-function defaultDeps(): NotifyDeps {
-  return {
-    loadConfig: realLoadConfig,
-    pickPopupChannel: realPickPopupChannel,
-    ringBell: realRingBell,
-    writeOsc: realWriteOsc,
-  };
 }
 
 // --- Pure gating ----------------------------------------------------------
@@ -174,9 +112,13 @@ export function shouldNotifySettled(input: ShouldNotifySettledInput): boolean {
 
 // --- Delivery -------------------------------------------------------------
 
-/** Deliver the popup plus the ambient bell and window-title cue. */
-function notify(ctx: ExtensionContext, payload: NotifyPayload, deps: NotifyDeps): void {
-  const popup = deps.pickPopupChannel();
+/** Deliver the popup and set the window-title cue.
+ *
+ * No bell: iTerm (and other terminals that turn BEL into a notification) would
+ * show a second notification alongside the popup - see #45. The popup and the
+ * title are the only cues. */
+function notify(ctx: ExtensionContext, payload: NotifyPayload): void {
+  const popup = pickPopupChannel();
   if (popup) {
     try {
       popup.send(payload);
@@ -184,30 +126,19 @@ function notify(ctx: ExtensionContext, payload: NotifyPayload, deps: NotifyDeps)
       // Fire-and-forget: never let a notification disturb the session.
     }
   }
-  deps.ringBell();
   ctx.ui.setTitle(`Pi: ${payload.body}`);
 }
 
 // --- Extension factory ----------------------------------------------------
 
-export default function notifyExtension(
-  pi: Pick<ExtensionAPI, "on">,
-  deps?: Partial<NotifyDeps>,
-): void {
-  const base = defaultDeps();
-  const d: NotifyDeps = {
-    loadConfig: deps?.loadConfig ?? base.loadConfig,
-    pickPopupChannel: deps?.pickPopupChannel ?? base.pickPopupChannel,
-    ringBell: deps?.ringBell ?? base.ringBell,
-    writeOsc: deps?.writeOsc ?? base.writeOsc,
-  };
+export default function notifyExtension(pi: Pick<ExtensionAPI, "on">): void {
   let enabled = true;
   let focusState: FocusState = INITIAL_FOCUS_STATE;
   let unsubscribeInput: (() => void) | undefined;
   let focusReportingOn = false;
 
   pi.on("session_start", (_event, ctx) => {
-    const config = d.loadConfig(ctx.cwd);
+    const config = loadNotifyConfig(ctx.cwd);
     enabled = config.enabled;
     if (config.warning) {
       ctx.ui.notify(config.warning, "warning");
@@ -224,7 +155,7 @@ export default function notifyExtension(
       unsubscribeInput = undefined;
     }
     focusState = INITIAL_FOCUS_STATE;
-    d.writeOsc(FOCUS_REPORT_ENABLE);
+    writeOsc(FOCUS_REPORT_ENABLE);
     focusReportingOn = true;
     unsubscribeInput = ctx.ui.onTerminalInput((data) => {
       const step = stepFocus(focusState, data);
@@ -239,7 +170,7 @@ export default function notifyExtension(
       unsubscribeInput = undefined;
     }
     if (focusReportingOn) {
-      d.writeOsc(FOCUS_REPORT_DISABLE);
+      writeOsc(FOCUS_REPORT_DISABLE);
       focusReportingOn = false;
     }
     focusState = INITIAL_FOCUS_STATE;
@@ -255,6 +186,6 @@ export default function notifyExtension(
     ) {
       return;
     }
-    notify(ctx, { title: "Pi", body: "Finished - waiting for input" }, d);
+    notify(ctx, { title: "Pi", body: "Finished - waiting for input" });
   });
 }

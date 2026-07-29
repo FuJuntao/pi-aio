@@ -34,8 +34,9 @@ event, never several at once:
 | WSL                                    | a PowerShell toast, via `powershell.exe` interop                     |
 | Over SSH, or no desktop binary present | a terminal escape sequence: Kitty OSC 99, iTerm2 OSC 9, else OSC 777 |
 
-Every popup is accompanied by a terminal **bell** and a **window-title** cue
-(`Pi: …`).
+Every popup also sets a **window-title** cue (`Pi: …`). There is no bell -
+iTerm and similar terminals turn BEL into a notification, which doubled up
+alongside the popup (see [#45](https://github.com/FuJuntao/pi-aio/issues/45)).
 
 ## WSL
 

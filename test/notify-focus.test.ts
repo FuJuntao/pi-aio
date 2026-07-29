@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import {
@@ -7,7 +7,7 @@ import {
   FOCUS_REPORT_DISABLE,
   parseFocusEvents,
   stepFocus,
-} from "./focus.ts";
+} from "../extensions/notify/focus.ts";
 
 // --- parseFocusEvents: no focus input -------------------------------------
 
