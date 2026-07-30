@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
@@ -47,6 +48,11 @@ afterEach(async () => {
   s = undefined;
 });
 
+/** Expected structural terminal title for a session's cwd and activity. */
+function titleFor(session: ExtensionSession, activity: "working" | "waiting"): string {
+  return `Pi · ${basename(session.cwd)} · ${activity}`;
+}
+
 // All behaviors here run through pi's real runtime (createAgentSession +
 // DefaultResourceLoader + fauxProvider) with a recording ctx.ui and a stdout
 // spy. No test-injection seam in the extension - what you assert is what a real
@@ -89,9 +95,14 @@ describe("session lifecycle", () => {
     await s.session.prompt("hi");
     await s.session.waitForIdle();
 
-    // Focus can't be detected without the listener, so the gate says "notify".
+    // Focus can't be detected without the listener, so the gate says "notify"
+    // (popup firing is pure-tested). The title is not focus-gated: a turn still
+    // flips it working -> waiting in non-TUI mode.
+    expect(s.eventsOfType("agent_start").length).toBeGreaterThan(0);
     expect(s.eventsOfType("agent_settled").length).toBeGreaterThan(0);
-    expect(s.ui.titles).toHaveLength(1);
+    expect(s.ui.titles).toHaveLength(2);
+    expect(s.ui.titles[0]).toBe(titleFor(s, "working"));
+    expect(s.ui.titles[1]).toBe(titleFor(s, "waiting"));
   });
 
   it("re-reads config on /reload: disabling tears focus reporting down, re-enabling wires it back up", async () => {
@@ -120,19 +131,24 @@ describe("session lifecycle", () => {
   });
 });
 
-describe("settled notification gating", () => {
-  it("fires a finished notification end-to-end when focus is unknown", async () => {
+describe("title lifecycle and settle side effects", () => {
+  it("flips the title working -> waiting across a turn (focus unknown)", async () => {
     // Focus state starts unknown (no OSC 1004 event seen yet), so the gating
-    // rule says "notify". A faux-driven turn settles the agent; notify's
-    // agent_settled handler must set the finished window-title cue.
+    // rule says "notify" (popup firing is pure-tested in notify-gating.test.ts;
+    // the popup is not observable in CI - no desktop binary, stdout not a TTY).
+    // A faux-driven turn emits agent_start then agent_settled; the title must
+    // flip working -> waiting. The title is not focus-gated, so this holds
+    // regardless of the unknown focus state.
     s = await createExtensionSession({ extensionPath });
 
     await s.session.prompt("hi");
     await s.session.waitForIdle();
 
+    expect(s.eventsOfType("agent_start").length).toBeGreaterThan(0);
     expect(s.eventsOfType("agent_settled").length).toBeGreaterThan(0);
-    expect(s.ui.titles).toHaveLength(1);
-    expect(s.ui.titles[0]).toMatch(/Finished/);
+    expect(s.ui.titles).toHaveLength(2);
+    expect(s.ui.titles[0]).toBe(titleFor(s, "working"));
+    expect(s.ui.titles[1]).toBe(titleFor(s, "waiting"));
   });
 
   it("does not ring a bell on settle (iTerm would turn a BEL into a 2nd notification - #45)", async () => {
@@ -154,10 +170,12 @@ describe("settled notification gating", () => {
     expect(hasBareBell(s.ui.stdoutWrites.join(""))).toBe(false);
   });
 
-  it("suppresses the notification while the terminal is focused", async () => {
-    // The regression-prone focus gate: a focus-in event (OSC 1004) makes the
-    // focus state known + focused, so shouldNotifySettled returns false and no
-    // title is set on settle.
+  it("still sets the title while focused (title is not focus-gated)", async () => {
+    // The title is a passive cue and is NOT focus-gated: a focus-in event
+    // (OSC 1004) makes the focus state known + focused, which suppresses the
+    // *popup* (shouldNotifySettled returns false - pinned in
+    // notify-gating.test.ts; the popup is not observable in CI), but the title
+    // still flips working -> waiting.
     s = await createExtensionSession({ extensionPath });
 
     s.ui.sendInput("\x1b[I");
@@ -165,12 +183,16 @@ describe("settled notification gating", () => {
     await s.session.waitForIdle();
 
     expect(s.eventsOfType("agent_settled").length).toBeGreaterThan(0);
-    expect(s.ui.titles).toHaveLength(0);
+    expect(s.ui.titles).toHaveLength(2);
+    expect(s.ui.titles[0]).toBe(titleFor(s, "working"));
+    expect(s.ui.titles[1]).toBe(titleFor(s, "waiting"));
   });
 
-  it("re-fires after the user steps away (focus-out re-opens the gate)", async () => {
-    // Two turns: focus-in suppresses the first settle; a focus-out makes the
-    // focus state known + unfocused, so the second settle fires again.
+  it("cycles the title working -> waiting across two turns", async () => {
+    // Two turns: the title is not focus-gated, so it flips working -> waiting
+    // on each turn regardless of focus. The popup's focus gate (suppressed
+    // while focused, re-opens on focus-out) is not observable in CI and is
+    // pinned in notify-gating.test.ts; this test proves the title cycles.
     s = await createExtensionSession({
       extensionPath,
       responses: [fauxAssistantMessage("one"), fauxAssistantMessage("two")],
@@ -179,16 +201,21 @@ describe("settled notification gating", () => {
     s.ui.sendInput("\x1b[I");
     await s.session.prompt("hi");
     await s.session.waitForIdle();
-    expect(s.ui.titles).toHaveLength(0);
+    // Turn 1 (focused): title still flips working -> waiting.
+    expect(s.ui.titles).toHaveLength(2);
 
     s.ui.sendInput("\x1b[O");
     await s.session.prompt("again");
     await s.session.waitForIdle();
-    expect(s.ui.titles).toHaveLength(1);
-    expect(s.ui.titles[0]).toMatch(/Finished/);
+    // Turn 2 (unfocused): title flips working -> waiting again.
+    expect(s.ui.titles).toHaveLength(4);
+    expect(s.ui.titles[2]).toBe(titleFor(s, "working"));
+    expect(s.ui.titles[3]).toBe(titleFor(s, "waiting"));
   });
 
-  it("suppresses all notifications when disabled by config", async () => {
+  it("stays fully inert when disabled by config (no title, no popup)", async () => {
+    // A disabled extension sets no title and sends no popup: both the
+    // agent_start and agent_settled handlers return early when !enabled.
     s = await createExtensionSession({
       extensionPath,
       configFiles: { notify: { enabled: false } },
