@@ -11,6 +11,34 @@ import { type ExtensionSession, createExtensionSession } from "./harness/index.t
 // ignored by the loader's `resolveExtensionEntries`.
 const extensionPath = fileURLToPath(new URL("../extensions/notify/", import.meta.url));
 
+/**
+ * True if `stream` contains a standalone BEL (`\x07`) - one that is not the
+ * string terminator (ST) of an OSC sequence. OSC sequences are introduced by
+ * `ESC ]` (`\x1b]`) and terminated by BEL or `ESC \` (ST). iTerm2 turns a
+ * *bell* into a notification (#45); a BEL that closes an OSC (OSC 9/777 use
+ * BEL as ST) is consumed by the OSC parser and is not a bell. So "no bare bell"
+ * is the real invariant - not "no `\x07` at all", which the iterm and osc777
+ * channels legitimately write as an OSC ST (Kitty uses `ESC \` instead).
+ */
+function hasBareBell(stream: string): boolean {
+  let inOsc = false;
+  for (let i = 0; i < stream.length; i++) {
+    const ch = stream[i];
+    if (ch === "\x1b") {
+      const next = stream[i + 1];
+      if (next === "]") inOsc = true;
+      else if (next === "\\") inOsc = false; // ESC \ is also an ST
+      continue;
+    }
+    if (ch === "\x07") {
+      if (inOsc)
+        inOsc = false; // BEL terminating an OSC = ST, fine
+      else return true; // BEL outside any OSC = a bell
+    }
+  }
+  return false;
+}
+
 // Each test gets its own session; clean up so the global faux api-registry and
 // the stdout spy don't leak between cases.
 let s: ExtensionSession | undefined;
@@ -108,20 +136,22 @@ describe("settled notification gating", () => {
   });
 
   it("does not ring a bell on settle (iTerm would turn a BEL into a 2nd notification - #45)", async () => {
-    // The extension must not write a BEL (\x07) alongside the popup: iTerm and
-    // similar terminals convert BEL into its own notification, which doubled up
-    // with the popup (#45). The popup is the only audible/visible cue besides
-    // the window title. In CI no popup fires (no binaries, not a TTY), so this
-    // asserts the bell path is gone entirely - it would catch an unconditional
-    // or mode-gated bell being re-added. (An isTTY-gated bell is invisible in
-    // CI and can't be asserted here; the #45 note in index.ts guards that.)
+    // No standalone BEL may be written alongside the popup: iTerm and similar
+    // terminals convert a bell into its own notification, which doubled up with
+    // the popup (#45). A BEL that terminates an OSC sequence (OSC 9/777 use BEL
+    // as their string terminator, ST) is fine - the OSC parser consumes it, it
+    // is not rung. So assert "no bare bell", not "no `\x07` at all": a detected
+    // terminal channel (iTerm2/Kitty) legitimately writes an OSC sequence. In
+    // CI no terminal-protocol channel fires (not a TTY, no ITERM_SESSION_ID),
+    // so this still catches a standalone bell being re-added; locally in
+    // iTerm2/Kitty it permits the OSC ST.
     s = await createExtensionSession({ extensionPath });
 
     await s.session.prompt("hi");
     await s.session.waitForIdle();
 
     expect(s.eventsOfType("agent_settled").length).toBeGreaterThan(0);
-    expect(s.ui.stdoutWrites).not.toContain("\x07");
+    expect(hasBareBell(s.ui.stdoutWrites.join(""))).toBe(false);
   });
 
   it("suppresses the notification while the terminal is focused", async () => {
