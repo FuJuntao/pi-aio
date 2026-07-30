@@ -80,6 +80,45 @@ const rows: readonly Row[] = [
     desktop: ["terminal-notifier"],
     expected: "terminal-notifier",
   },
+  // Detected terminal protocols (iTerm2, Kitty) win over a desktop binary
+  // locally (#45). The generic OSC 777 does not - it's only the last resort
+  // (see the no-desktop-binary rows, which still fall through to osc777).
+  {
+    name: "macOS local in iTerm2 (ITERM_SESSION_ID) -> iterm, not terminal-notifier (#45)",
+    rawPlatform: "darwin",
+    wsl: false,
+    env: env({ ITERM_SESSION_ID: "p1" }),
+    isTTY: true,
+    desktop: ["terminal-notifier"],
+    expected: "iterm",
+  },
+  {
+    name: "macOS local in Kitty (KITTY_WINDOW_ID) -> kitty, not terminal-notifier",
+    rawPlatform: "darwin",
+    wsl: false,
+    env: env({ KITTY_WINDOW_ID: "1" }),
+    isTTY: true,
+    desktop: ["terminal-notifier"],
+    expected: "kitty",
+  },
+  {
+    name: "macOS local in iTerm2, no desktop binary -> iterm OSC 9",
+    rawPlatform: "darwin",
+    wsl: false,
+    env: env({ ITERM_SESSION_ID: "p1" }),
+    isTTY: true,
+    desktop: [],
+    expected: "iterm",
+  },
+  {
+    name: "macOS local in iTerm2 but not a TTY -> osascript (OSC needs a TTY)",
+    rawPlatform: "darwin",
+    wsl: false,
+    env: env({ ITERM_SESSION_ID: "p1" }),
+    isTTY: false,
+    desktop: ["osascript"],
+    expected: "osascript",
+  },
   // Linux
   {
     name: "Linux local, notify-send + DISPLAY -> notify-send",
@@ -98,6 +137,15 @@ const rows: readonly Row[] = [
     isTTY: true,
     desktop: ["notify-send"],
     expected: "notify-send",
+  },
+  {
+    name: "Linux local in Kitty (KITTY_WINDOW_ID) -> kitty, not notify-send",
+    rawPlatform: "linux",
+    wsl: false,
+    env: env({ KITTY_WINDOW_ID: "1", DISPLAY: ":0" }),
+    isTTY: true,
+    desktop: ["notify-send"],
+    expected: "kitty",
   },
   {
     name: "Linux local, notify-send but no display server -> osc777",

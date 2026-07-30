@@ -28,6 +28,7 @@ event, never several at once:
 
 | Where                                  | How                                                                  |
 | -------------------------------------- | -------------------------------------------------------------------- |
+| In iTerm2 or Kitty                     | iTerm2 OSC 9 / Kitty OSC 99 (the terminal's native notification)     |
 | macOS                                  | `terminal-notifier`, falling back to `osascript`                     |
 | Linux                                  | `notify-send`                                                        |
 | Windows                                | a PowerShell toast                                                   |
@@ -37,6 +38,9 @@ event, never several at once:
 Every popup also sets a **window-title** cue (`Pi: …`). There is no bell -
 iTerm and similar terminals turn BEL into a notification, which doubled up
 alongside the popup (see [#45](https://github.com/FuJuntao/pi-aio/issues/45)).
+In iTerm2 or Kitty the popup _is_ the terminal's native OSC notification, so
+nothing extra is spawned; the BEL that closes an OSC sequence is its string
+terminator, not a bell.
 
 ## WSL
 

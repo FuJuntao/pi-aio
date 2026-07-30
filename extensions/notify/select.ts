@@ -4,8 +4,10 @@
  * Every function here is a pure decision over injectable inputs (env vars,
  * platform string, TTY flag, availability probe callback). The impure
  * gathering of those inputs lives in `index.ts`. This split keeps the routing
- * rules - "SSH prefers terminal protocols", "Linux needs DISPLAY/WAYLAND",
- * "Kitty before generic OSC 777" - unit-testable without spawning or TTYs.
+ * rules - "SSH uses terminal protocols only", "a detected terminal protocol
+ * (iTerm2/Kitty) wins over a desktop binary locally", "Linux needs
+ * DISPLAY/WAYLAND", "Kitty before iTerm2 before generic OSC 777" -
+ * unit-testable without spawning or TTYs.
  */
 
 import type { ChannelKind } from "./channels.ts";
@@ -31,8 +33,10 @@ export function desktopSessionPresent(
 
 /**
  * Pick the terminal-protocol channel kind for the current terminal, or
- * undefined when stdout is not a TTY. Kitty is preferred over iTerm2, which is
- * preferred over the generic OSC 777.
+ * undefined when stdout is not a TTY. Kitty and iTerm2 are detected via env
+ * vars; OSC 777 is the generic fallback for any other TTY. `choosePopupKind`
+ * prefers the detected kinds over a desktop binary, but treats OSC 777 as a
+ * last resort (see `isDetectedTerminalKind`).
  */
 export function chooseTerminalKind(
   env: Record<string, string | undefined>,
@@ -105,16 +109,42 @@ export interface PopupSelectionInput {
 }
 
 /**
- * Pick exactly one popup channel kind: a native desktop notification when
- * local and a binary is present, otherwise a terminal-protocol notification.
- * Never both. Returns undefined when no suitable channel exists (e.g. not a
- * TTY and no desktop binary). `platform` is the desktop-effective platform;
- * the caller resolves WSL (which reports "linux" but has a Windows desktop)
- * to "win32" before calling.
+ * Whether `kind` is a terminal protocol backed by a reliable env-var detection
+ * (iTerm2 via `ITERM_SESSION_ID`, Kitty via `KITTY_WINDOW_ID`), as opposed to
+ * the generic OSC 777 returned for any other TTY. Detected protocols are
+ * preferred over a desktop binary locally; the generic OSC 777 is only a last
+ * resort, since Terminal.app and Windows Terminal ignore it.
+ */
+function isDetectedTerminalKind(kind: ChannelKind | undefined): boolean {
+  return kind === "iterm" || kind === "kitty";
+}
+
+/**
+ * Pick exactly one popup channel kind by ordered preference:
+ *
+ * 1. Over SSH, a terminal protocol is the only option - the remote desktop
+ *    can't reach the user - so a detected protocol (iTerm2/Kitty) or, failing
+ *    that, the generic OSC 777 on a TTY.
+ * 2. Locally, a *detected* terminal protocol (iTerm2 OSC 9, Kitty OSC 99) wins
+ *    over a desktop binary: it's delivered by the terminal the user is in and
+ *    spawns no process (#45 - the bell that used to be the "iTerm notification"
+ *    was removed; OSC 9 is the terminal's own native notification).
+ * 3. Then a platform desktop binary (`terminal-notifier`/`osascript`,
+ *    `notify-send`, `powershell`) when one is on PATH and a session is present.
+ * 4. Finally the generic OSC 777 as a last resort on a TTY.
+ *
+ * Never both a terminal protocol and a desktop binary. The generic OSC 777 is
+ * deliberately not preferred over a desktop binary: Terminal.app and Windows
+ * Terminal ignore it, so a desktop popup must win there. Returns undefined when
+ * nothing applies (e.g. not a TTY and no desktop binary). `platform` is the
+ * desktop-effective platform; the caller resolves WSL (which reports "linux"
+ * but has a Windows desktop) to "win32" before calling.
  */
 export function choosePopupKind(input: PopupSelectionInput): ChannelKind | undefined {
   const terminalKind = chooseTerminalKind(input.env, input.isTTY);
+
   if (isOverSsh(input.env)) return terminalKind;
+  if (isDetectedTerminalKind(terminalKind)) return terminalKind;
 
   for (const kind of chooseDesktopKind(input.platform)) {
     if (input.desktopAvailable(kind) && desktopSessionPresent(input.platform, input.env)) {
