@@ -1,5 +1,4 @@
-import { test } from "vitest";
-import assert from "node:assert/strict";
+import { expect, test } from "vitest";
 
 import {
   chooseDesktopKind,
@@ -268,7 +267,7 @@ test.each(rows)("channel selection: $name", (r: Row) => {
     isTTY: r.isTTY,
     desktopAvailable: available(r.desktop),
   });
-  assert.equal(kind, r.expected);
+  expect(kind).toBe(r.expected);
 });
 
 // --- WSL detection robustness (desktopPlatform) ---------------------------
@@ -277,49 +276,47 @@ test.each(rows)("channel selection: $name", (r: Row) => {
 
 test("desktopPlatform: non-linux passes through even if /proc/version mentions microsoft", () => {
   const read = () => "Linux version ... microsoft ...";
-  assert.equal(desktopPlatform({ platform: "darwin", readProcVersion: read }), "darwin");
-  assert.equal(desktopPlatform({ platform: "win32", readProcVersion: read }), "win32");
-  assert.equal(desktopPlatform({ platform: "freebsd", readProcVersion: read }), "freebsd");
+  expect(desktopPlatform({ platform: "darwin", readProcVersion: read })).toBe("darwin");
+  expect(desktopPlatform({ platform: "win32", readProcVersion: read })).toBe("win32");
+  expect(desktopPlatform({ platform: "freebsd", readProcVersion: read })).toBe("freebsd");
 });
 
 test("desktopPlatform: microsoft match is case-insensitive", () => {
-  assert.equal(
+  expect(
     desktopPlatform({
       platform: "linux",
       readProcVersion: () => "Linux version ... Microsoft ...",
     }),
-    "win32",
-  );
+  ).toBe("win32");
 });
 
 test("desktopPlatform: native linux (no microsoft in /proc/version) stays linux", () => {
-  assert.equal(
+  expect(
     desktopPlatform({
       platform: "linux",
       readProcVersion: () => "Linux version 6.8.0-generic ...",
     }),
-    "linux",
-  );
+  ).toBe("linux");
 });
 
 test("desktopPlatform: linux with an unreadable /proc/version stays linux", () => {
-  assert.equal(desktopPlatform({ platform: "linux", readProcVersion: () => undefined }), "linux");
+  expect(desktopPlatform({ platform: "linux", readProcVersion: () => undefined })).toBe("linux");
 });
 
 // --- desktop fallback order per platform ----------------------------------
 
 test("chooseDesktopKind: darwin tries terminal-notifier then osascript", () => {
-  assert.deepEqual([...chooseDesktopKind("darwin")], ["terminal-notifier", "osascript"]);
+  expect([...chooseDesktopKind("darwin")]).toEqual(["terminal-notifier", "osascript"]);
 });
 
 test("chooseDesktopKind: linux uses notify-send", () => {
-  assert.deepEqual([...chooseDesktopKind("linux")], ["notify-send"]);
+  expect([...chooseDesktopKind("linux")]).toEqual(["notify-send"]);
 });
 
 test("chooseDesktopKind: win32 uses powershell", () => {
-  assert.deepEqual([...chooseDesktopKind("win32")], ["powershell"]);
+  expect([...chooseDesktopKind("win32")]).toEqual(["powershell"]);
 });
 
 test("chooseDesktopKind: unknown platform has no desktop channel", () => {
-  assert.deepEqual([...chooseDesktopKind("freebsd")], []);
+  expect([...chooseDesktopKind("freebsd")]).toEqual([]);
 });

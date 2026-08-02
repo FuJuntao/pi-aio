@@ -1,5 +1,4 @@
-import { test } from "vitest";
-import assert from "node:assert/strict";
+import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,8 +36,8 @@ test("loadConfig: absent config defaults to enabled with no warning", () => {
   const s = setup({});
   try {
     const cfg = loadConfig({ cwd: s.projectDir, globalDir: s.globalDir, configDirName: ".pi" });
-    assert.equal(cfg.enabled, true);
-    assert.equal(cfg.warning, undefined);
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.warning).toBe(undefined);
   } finally {
     s.cleanup();
   }
@@ -48,8 +47,8 @@ test("loadConfig: global enabled:false disables notifications", () => {
   const s = setup({ global: '{"enabled": false}' });
   try {
     const cfg = loadConfig({ cwd: s.projectDir, globalDir: s.globalDir, configDirName: ".pi" });
-    assert.equal(cfg.enabled, false);
-    assert.equal(cfg.warning, undefined);
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.warning).toBe(undefined);
   } finally {
     s.cleanup();
   }
@@ -59,7 +58,7 @@ test("loadConfig: project enabled:true overrides global disabled", () => {
   const s = setup({ global: '{"enabled": false}', project: '{"enabled": true}' });
   try {
     const cfg = loadConfig({ cwd: s.projectDir, globalDir: s.globalDir, configDirName: ".pi" });
-    assert.equal(cfg.enabled, true);
+    expect(cfg.enabled).toBe(true);
   } finally {
     s.cleanup();
   }
@@ -69,7 +68,7 @@ test("loadConfig: project enabled:false overrides global enabled", () => {
   const s = setup({ global: '{"enabled": true}', project: '{"enabled": false}' });
   try {
     const cfg = loadConfig({ cwd: s.projectDir, globalDir: s.globalDir, configDirName: ".pi" });
-    assert.equal(cfg.enabled, false);
+    expect(cfg.enabled).toBe(false);
   } finally {
     s.cleanup();
   }
@@ -79,9 +78,9 @@ test("loadConfig: malformed global JSON warns and defaults to enabled", () => {
   const s = setup({ global: "{ not json" });
   try {
     const cfg = loadConfig({ cwd: s.projectDir, globalDir: s.globalDir, configDirName: ".pi" });
-    assert.equal(cfg.enabled, true);
-    assert.match(cfg.warning ?? "", /failed to parse/);
-    assert.match(cfg.warning ?? "", /notify\.json/);
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.warning ?? "").toMatch(/failed to parse/);
+    expect(cfg.warning ?? "").toMatch(/notify\.json/);
   } finally {
     s.cleanup();
   }
@@ -91,8 +90,8 @@ test("loadConfig: non-object global JSON warns and defaults to enabled", () => {
   const s = setup({ global: "true" });
   try {
     const cfg = loadConfig({ cwd: s.projectDir, globalDir: s.globalDir, configDirName: ".pi" });
-    assert.equal(cfg.enabled, true);
-    assert.match(cfg.warning ?? "", /not a JSON object/);
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.warning ?? "").toMatch(/not a JSON object/);
   } finally {
     s.cleanup();
   }
@@ -102,8 +101,8 @@ test("loadConfig: malformed project JSON warns but preserves the global setting"
   const s = setup({ global: '{"enabled": true}', project: "{ broken" });
   try {
     const cfg = loadConfig({ cwd: s.projectDir, globalDir: s.globalDir, configDirName: ".pi" });
-    assert.equal(cfg.enabled, true);
-    assert.match(cfg.warning ?? "", /failed to parse/);
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.warning ?? "").toMatch(/failed to parse/);
   } finally {
     s.cleanup();
   }
@@ -113,8 +112,8 @@ test("loadConfig: explicit enabled:true keeps notifications on", () => {
   const s = setup({ global: '{"enabled": true}' });
   try {
     const cfg = loadConfig({ cwd: s.projectDir, globalDir: s.globalDir, configDirName: ".pi" });
-    assert.equal(cfg.enabled, true);
-    assert.equal(cfg.warning, undefined);
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.warning).toBe(undefined);
   } finally {
     s.cleanup();
   }

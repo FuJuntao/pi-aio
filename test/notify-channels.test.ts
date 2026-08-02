@@ -1,5 +1,4 @@
-import { test } from "vitest";
-import assert from "node:assert/strict";
+import { expect, test } from "vitest";
 
 import {
   type NotifyPayload,
@@ -27,77 +26,86 @@ const info: NotifyPayload = { title: "Pi", body: "Done" };
 // --- quoteAppleScript -----------------------------------------------------
 
 test("quoteAppleScript: wraps a plain string in double quotes", () => {
-  assert.equal(quoteAppleScript("hello"), '"hello"');
+  expect(quoteAppleScript("hello")).toBe('"hello"');
 });
 
 test("quoteAppleScript: escapes embedded double quotes", () => {
-  assert.equal(quoteAppleScript('say "hi"'), '"say \\"hi\\""');
+  expect(quoteAppleScript('say "hi"')).toBe('"say \\"hi\\""');
 });
 
 test("quoteAppleScript: escapes backslashes", () => {
-  assert.equal(quoteAppleScript("back\\slash"), '"back\\\\slash"');
+  expect(quoteAppleScript("back\\slash")).toBe('"back\\\\slash"');
 });
 
 // --- windowsToastScript ---------------------------------------------------
 
 test("windowsToastScript: builds a ToastText01 invocation with title and body", () => {
   const script = windowsToastScript("Pi", "Done");
-  assert.ok(script.includes("ToastText01"));
-  assert.ok(script.includes("'Pi'"));
-  assert.ok(script.includes("'Done'"));
+  expect(script).toContain("ToastText01");
+  expect(script).toContain("'Pi'");
+  expect(script).toContain("'Done'");
 });
 
 test("windowsToastScript: doubles apostrophes in title and body", () => {
   const script = windowsToastScript("Bob's", "It's done");
-  assert.ok(script.includes("'Bob''s'"));
-  assert.ok(script.includes("'It''s done'"));
+  expect(script).toContain("'Bob''s'");
+  expect(script).toContain("'It''s done'");
 });
 
 // --- desktop argv builders ------------------------------------------------
 
 test("terminalNotifierArgs: -title/-message/-sound default", () => {
-  assert.deepEqual(
-    [...terminalNotifierArgs(info)],
-    ["-title", "Pi", "-message", "Done", "-sound", "default"],
-  );
+  expect([...terminalNotifierArgs(info)]).toEqual([
+    "-title",
+    "Pi",
+    "-message",
+    "Done",
+    "-sound",
+    "default",
+  ]);
 });
 
 test("osascriptArgs: a display-notification AppleScript via -e", () => {
-  assert.deepEqual(
-    [...osascriptArgs(info)],
-    ["-e", 'display notification "Done" with title "Pi" sound name "default"'],
-  );
+  expect([...osascriptArgs(info)]).toEqual([
+    "-e",
+    'display notification "Done" with title "Pi" sound name "default"',
+  ]);
 });
 
 test("notifySendArgs: normal urgency, pi app-name, then title and body", () => {
-  assert.deepEqual(
-    [...notifySendArgs(info)],
-    ["--urgency", "normal", "--app-name", "pi", "Pi", "Done"],
-  );
+  expect([...notifySendArgs(info)]).toEqual([
+    "--urgency",
+    "normal",
+    "--app-name",
+    "pi",
+    "Pi",
+    "Done",
+  ]);
 });
 
 test("powershellArgs: -NoProfile -Command <toast script>", () => {
-  assert.deepEqual(
-    [...powershellArgs(info)],
-    ["-NoProfile", "-Command", windowsToastScript("Pi", "Done")],
-  );
+  expect([...powershellArgs(info)]).toEqual([
+    "-NoProfile",
+    "-Command",
+    windowsToastScript("Pi", "Done"),
+  ]);
 });
 
 // --- terminal escape builders --------------------------------------------
 
 test("kittySequences: OSC 99 held title then body, each ST-terminated", () => {
-  assert.deepEqual(
-    [...kittySequences(info)],
-    ["\x1b]99;i=1:d=0;Pi\x1b\\", "\x1b]99;i=1:p=body;Done\x1b\\"],
-  );
+  expect([...kittySequences(info)]).toEqual([
+    "\x1b]99;i=1:d=0;Pi\x1b\\",
+    "\x1b]99;i=1:p=body;Done\x1b\\",
+  ]);
 });
 
 test("itermSequence: OSC 9 with `title: body`, BEL-terminated", () => {
-  assert.equal(itermSequence(info), "\x1b]9;Pi: Done\x07");
+  expect(itermSequence(info)).toBe("\x1b]9;Pi: Done\x07");
 });
 
 test("osc777Sequence: OSC 777 notify;title;body, BEL-terminated", () => {
-  assert.equal(osc777Sequence(info), "\x1b]777;notify;Pi;Done\x07");
+  expect(osc777Sequence(info)).toBe("\x1b]777;notify;Pi;Done\x07");
 });
 
 // --- createChannels -------------------------------------------------------
@@ -106,7 +114,7 @@ test("createChannels: builds one channel per kind (does not spawn)", () => {
   // available() is not called, so no spawnSync occurs; this just checks the
   // channel set and names.
   const channels = createChannels();
-  assert.deepEqual(Object.keys(channels).sort(), [
+  expect(Object.keys(channels).sort()).toEqual([
     "iterm",
     "kitty",
     "notify-send",
@@ -115,5 +123,5 @@ test("createChannels: builds one channel per kind (does not spawn)", () => {
     "powershell",
     "terminal-notifier",
   ]);
-  assert.equal(channels["terminal-notifier"].name, "terminal-notifier");
+  expect(channels["terminal-notifier"].name).toBe("terminal-notifier");
 });
