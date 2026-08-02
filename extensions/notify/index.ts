@@ -2,28 +2,34 @@
  * Notify extension entry point for `@fujuntao/pi-aio`.
  *
  * Delivers cross-platform notifications when pi needs the user - when it settles
- * and is waiting for input (`agent_settled`). It auto-selects a native desktop
- * notification when local - or the terminal's own OSC notification when running
- * inside iTerm2 or Kitty - and a terminal-protocol notification (OSC 777/9/99)
- * over SSH or when no desktop binary is present - plus a window-title cue.
+ * and is waiting for input (`agent_settled`). The popup body is a short verbatim
+ * preview of pi's last assistant reply (sanitized and truncated, falling back
+ * to a static string when there's no usable text). It auto-selects a native
+ * desktop notification when local - or the terminal's own OSC notification when
+ * running inside iTerm2 or Kitty - and a terminal-protocol notification (OSC
+ * 777/9/99) over SSH or when no desktop binary is present. A live structural
+ * terminal title `Pi · {project} · {activity}` flips to `working` on
+ * `agent_start` and `waiting` on `agent_settled`.
  *
- * Gating: a "settled" notification fires only when the terminal is **not
- * focused** (the user has switched away). Focus is tracked via OSC 1004 focus
- * events in interactive (TUI) mode. If focus cannot be detected - the terminal
- * doesn't speak OSC 1004, or the session is non-interactive - the notification
- * fires regardless (better to over-notify than to swallow a "done" signal).
- * There is no duration threshold.
+ * Gating: the popup fires only when the terminal is **not focused** (the user
+ * has switched away); the title is a passive cue and is **not** focus-gated, so
+ * it updates on every `agent_start`/`agent_settled` even while the user is
+ * watching. Focus is tracked via OSC 1004 focus events in interactive (TUI)
+ * mode. If focus cannot be detected - the terminal doesn't speak OSC 1004, or
+ * the session is non-interactive - the popup fires regardless (better to
+ * over-notify than to swallow a "done" signal). There is no duration threshold.
  *
  * Config: a single `enabled` field in `~/.pi/agent/notify.json` (global) merged
  * with `<cwd>/.pi/notify.json` (project wins). Absent config defaults to
  * enabled.
  *
- * Pure routing/escaping logic lives in `select.ts`, `channels.ts`, and
- * `focus.ts`; this module owns the impure seams (spawning, probing, writing OSC,
- * the input listener) and the event wiring. Impure behavior is exercised
- * end-to-end through pi's real runtime in `test/notify-e2e.test.ts` (loaded via
- * `DefaultResourceLoader`, driven by the faux provider); the pure helpers are
- * unit-tested directly. There is no test-injection seam here.
+ * Pure routing/escaping/preview logic lives in `select.ts`, `channels.ts`,
+ * `focus.ts`, and `preview.ts`; this module owns the impure seams (spawning,
+ * probing, writing OSC, the input listener) and the event wiring. Impure
+ * behavior is exercised end-to-end through pi's real runtime in
+ * `test/notify-e2e.test.ts` (loaded via `DefaultResourceLoader`, driven by the
+ * faux provider); the pure helpers are unit-tested directly. There is no
+ * test-injection seam here.
  *
  * Inspired by pi's `examples/extensions/notify.ts`, rewritten to fire on
  * `agent_settled` (not `agent_end`, which fires prematurely during auto-retry /
@@ -32,13 +38,9 @@
  */
 
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { env, platform, stdout } from "node:process";
-import {
-  CONFIG_DIR_NAME,
-  getAgentDir,
-  type ExtensionAPI,
-  type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   type ChannelKind,
   type NotifyChannel,
@@ -53,6 +55,7 @@ import {
   type FocusState,
   stepFocus,
 } from "./focus.ts";
+import { buildPreviewBody } from "./preview.ts";
 import { choosePopupKind, desktopPlatform } from "./select.ts";
 
 // --- Impure seams (real implementations) ----------------------------------
@@ -111,16 +114,33 @@ export function shouldNotifySettled(input: ShouldNotifySettledInput): boolean {
   return true;
 }
 
+// --- Pure title builder ---------------------------------------------------
+
+/** The two activities the live terminal title reflects. */
+export type TitleActivity = "working" | "waiting";
+
+/**
+ * Build the live structural terminal title `Pi · {project} · {activity}`, where
+ * `{project}` is the basename of the session cwd and `{activity}` is "working"
+ * (agent loop running) or "waiting" (settled, awaiting input). Pure over its
+ * inputs; the event handlers set it on `agent_start` / `agent_settled`,
+ * decoupled from the popup.
+ */
+export function buildTitle(cwd: string, activity: TitleActivity): string {
+  return `Pi · ${basename(cwd)} · ${activity}`;
+}
+
 // --- Delivery -------------------------------------------------------------
 
-/** Deliver the popup and set the window-title cue.
+/** Deliver the popup only. The window title is owned by the event handlers
+ *  (see `buildTitle`); this sender no longer sets it.
  *
- * No bell: iTerm (and other terminals that turn BEL into a notification) would
- * show a second notification alongside the popup - see #45. Inside iTerm2 or
- * Kitty the popup is the terminal's native OSC notification (the BEL that
- * closes an OSC is its string terminator, not a bell); elsewhere a desktop
- * binary or generic OSC fires. The popup and the title are the only cues. */
-function notify(ctx: ExtensionContext, payload: NotifyPayload): void {
+ *  No bell: iTerm (and other terminals that turn BEL into a notification) would
+ *  show a second notification alongside the popup - see #45. Inside iTerm2 or
+ *  Kitty the popup is the terminal's native OSC notification (the BEL that
+ *  closes an OSC is its string terminator, not a bell); elsewhere a desktop
+ *  binary or generic OSC fires. The popup is the only cue this sender emits. */
+function sendPopup(payload: NotifyPayload): void {
   const popup = pickPopupChannel();
   if (popup) {
     try {
@@ -129,7 +149,6 @@ function notify(ctx: ExtensionContext, payload: NotifyPayload): void {
       // Fire-and-forget: never let a notification disturb the session.
     }
   }
-  ctx.ui.setTitle(`Pi: ${payload.body}`);
 }
 
 // --- Extension factory ----------------------------------------------------
@@ -179,7 +198,20 @@ export default function notifyExtension(pi: Pick<ExtensionAPI, "on">): void {
     focusState = INITIAL_FOCUS_STATE;
   });
 
+  pi.on("agent_start", (_event, ctx) => {
+    // A disabled extension is fully inert: no title updates either.
+    if (!enabled) return;
+    ctx.ui.setTitle(buildTitle(ctx.cwd, "working"));
+  });
+
   pi.on("agent_settled", (_event, ctx) => {
+    // A disabled extension is fully inert: no title updates either.
+    if (!enabled) return;
+    // The title is a passive cue, useful while watching too, so it is NOT
+    // focus-gated: it flips to "waiting" on every settle regardless of focus.
+    ctx.ui.setTitle(buildTitle(ctx.cwd, "waiting"));
+    // The popup is focus-gated (only when the user has stepped away, or focus
+    // is unknown) and now carries a verbatim preview of pi's last reply.
     if (
       !shouldNotifySettled({
         enabled,
@@ -189,6 +221,6 @@ export default function notifyExtension(pi: Pick<ExtensionAPI, "on">): void {
     ) {
       return;
     }
-    notify(ctx, { title: "Pi", body: "Finished - waiting for input" });
+    sendPopup({ title: "Pi", body: buildPreviewBody(ctx.sessionManager.getBranch()) });
   });
 }
