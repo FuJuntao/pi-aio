@@ -1,5 +1,4 @@
-import { test } from "vitest";
-import assert from "node:assert/strict";
+import { expect, test } from "vitest";
 
 import type {
   CompactionEntry,
@@ -72,15 +71,15 @@ const toolResultMsg = (parentId: string | null = null): SessionMessageEntry =>
 // --- extractLastAssistantText ---------------------------------------------
 
 test("extractLastAssistantText: empty branch yields empty string", () => {
-  assert.equal(extractLastAssistantText([]), "");
+  expect(extractLastAssistantText([])).toBe("");
 });
 
 test("extractLastAssistantText: only a user message yields empty string", () => {
-  assert.equal(extractLastAssistantText([userMsg("hi")]), "");
+  expect(extractLastAssistantText([userMsg("hi")])).toBe("");
 });
 
 test("extractLastAssistantText: single assistant text block is returned", () => {
-  assert.equal(extractLastAssistantText([userMsg("hi"), assistantMsg("done")]), "done");
+  expect(extractLastAssistantText([userMsg("hi"), assistantMsg("done")])).toBe("done");
 });
 
 test("extractLastAssistantText: the LAST assistant message wins (not the first)", () => {
@@ -90,7 +89,7 @@ test("extractLastAssistantText: the LAST assistant message wins (not the first)"
     userMsg("again"),
     assistantMsg("second reply"),
   ];
-  assert.equal(extractLastAssistantText(branch), "second reply");
+  expect(extractLastAssistantText(branch)).toBe("second reply");
 });
 
 test("extractLastAssistantText: only text blocks are concatenated (thinking/toolCall dropped)", () => {
@@ -105,7 +104,7 @@ test("extractLastAssistantText: only text blocks are concatenated (thinking/tool
       ]),
     ),
   ];
-  assert.equal(extractLastAssistantText(branch), "hello world");
+  expect(extractLastAssistantText(branch)).toBe("hello world");
 });
 
 test("extractLastAssistantText: assistant with no text blocks yields empty string", () => {
@@ -113,7 +112,7 @@ test("extractLastAssistantText: assistant with no text blocks yields empty strin
     userMsg("hi"),
     messageEntry(fauxAssistantMessage([fauxThinking("only thinking"), fauxToolCall("read", {})])),
   ];
-  assert.equal(extractLastAssistantText(branch), "");
+  expect(extractLastAssistantText(branch)).toBe("");
 });
 
 test("extractLastAssistantText: compaction entries are skipped, last assistant still found", () => {
@@ -122,7 +121,7 @@ test("extractLastAssistantText: compaction entries are skipped, last assistant s
     compactionEntry(),
     assistantMsg("after compaction"),
   ];
-  assert.equal(extractLastAssistantText(branch), "after compaction");
+  expect(extractLastAssistantText(branch)).toBe("after compaction");
 });
 
 test("extractLastAssistantText: toolResult entries are skipped", () => {
@@ -132,155 +131,154 @@ test("extractLastAssistantText: toolResult entries are skipped", () => {
     toolResultMsg(),
     assistantMsg("real reply"),
   ];
-  assert.equal(extractLastAssistantText(branch), "real reply");
+  expect(extractLastAssistantText(branch)).toBe("real reply");
 });
 
 // --- sanitize -------------------------------------------------------------
 
 test("sanitize: plain prose passes through with whitespace collapsed", () => {
-  assert.equal(sanitize("Hello   world\n\nnext line"), "Hello world next line");
+  expect(sanitize("Hello   world\n\nnext line")).toBe("Hello world next line");
 });
 
 test("sanitize: fenced code blocks (backticks) are removed entirely", () => {
-  assert.equal(sanitize("before\n```ts\nconst x = 1;\n```\nafter"), "before after");
+  expect(sanitize("before\n```ts\nconst x = 1;\n```\nafter")).toBe("before after");
 });
 
 test("sanitize: fenced code blocks (tildes) are removed entirely", () => {
-  assert.equal(sanitize("before\n~~~\ncode\n~~~\nafter"), "before after");
+  expect(sanitize("before\n~~~\ncode\n~~~\nafter")).toBe("before after");
 });
 
 test("sanitize: an unmatched opening fence swallows the rest", () => {
-  assert.equal(sanitize("before\n```ts\ncode without close"), "before");
+  expect(sanitize("before\n```ts\ncode without close")).toBe("before");
 });
 
 test("sanitize: inline backticks are stripped, inner text kept", () => {
-  assert.equal(sanitize("use `foo` and `bar` here"), "use foo and bar here");
+  expect(sanitize("use `foo` and `bar` here")).toBe("use foo and bar here");
 });
 
 test("sanitize: a lone backtick is removed", () => {
-  assert.equal(sanitize("a ` b"), "a b");
+  expect(sanitize("a ` b")).toBe("a b");
 });
 
 test("sanitize: JS/Node stack-frame lines are dropped", () => {
   const text =
     "Error occurred\n    at foo (bar.js:1:2)\n    at Object.<anonymous> (bar.js:5:6)\nrecovered";
-  assert.equal(sanitize(text), "Error occurred recovered");
+  expect(sanitize(text)).toBe("Error occurred recovered");
 });
 
 test("sanitize: Python traceback frame lines are dropped", () => {
   const text = 'Traceback (most recent call last):\n  File "x.py", line 10, in <module>\nAll done';
-  assert.equal(sanitize(text), "All done");
+  expect(sanitize(text)).toBe("All done");
 });
 
 test("sanitize: Ruby stack-frame lines are dropped", () => {
   const text = "from /app/lib.rb:10:in `foo'\n/app/lib.rb:20:in `bar'\nrecovered";
-  assert.equal(sanitize(text), "recovered");
+  expect(sanitize(text)).toBe("recovered");
 });
 
 test("sanitize: Rust panic/backtrace lines are dropped", () => {
   const text =
     "panicked at 'overflow', src/main.rs:10:5\nstack backtrace:\n   0: std::backtrace::Backtrace::capture\nrecovered";
-  assert.equal(sanitize(text), "recovered");
+  expect(sanitize(text)).toBe("recovered");
 });
 
 test("sanitize: Go panic/goroutine/frame lines are dropped", () => {
   const text =
     "panic: runtime error: index out of range\ngoroutine 1 [running]:\n\t/path/file.go:42 +0x100\n\t/path/file.go:10 +0x20\nrecovered";
-  assert.equal(sanitize(text), "recovered");
+  expect(sanitize(text)).toBe("recovered");
 });
 
 test("sanitize: Node UnhandledPromiseRejection lines are dropped", () => {
   const text = "UnhandledPromiseRejection: this rejection was not handled\nrecovered";
-  assert.equal(sanitize(text), "recovered");
+  expect(sanitize(text)).toBe("recovered");
 });
 
 test("sanitize: shell-prompt lines ($ and >) are dropped", () => {
-  assert.equal(sanitize("$ ls -la\n> echo hi\nactual output"), "actual output");
+  expect(sanitize("$ ls -la\n> echo hi\nactual output")).toBe("actual output");
 });
 
 test("sanitize: a code block plus a real sentence keeps only the sentence", () => {
-  assert.equal(
-    sanitize("I ran the tests:\n```sh\npnpm test\n```\nAll green."),
+  expect(sanitize("I ran the tests:\n```sh\npnpm test\n```\nAll green.")).toBe(
     "I ran the tests: All green.",
   );
 });
 
 test("sanitize: only a fenced code block yields empty string", () => {
-  assert.equal(sanitize("```\ncode\n```"), "");
+  expect(sanitize("```\ncode\n```")).toBe("");
 });
 
 test("sanitize: mixed stack trace and prose keeps the prose", () => {
   const text =
     "Something failed:\n    at foo (bar.js:1:2)\n    at baz (bar.js:3:4)\nBut I retried and it worked.";
-  assert.equal(sanitize(text), "Something failed: But I retried and it worked.");
+  expect(sanitize(text)).toBe("Something failed: But I retried and it worked.");
 });
 
 // --- truncateGraphemes ----------------------------------------------------
 
 test("truncateGraphemes: empty string is empty", () => {
-  assert.equal(truncateGraphemes("", 200), "");
+  expect(truncateGraphemes("", 200)).toBe("");
 });
 
 test("truncateGraphemes: text under the limit is unchanged", () => {
-  assert.equal(truncateGraphemes("hello", 200), "hello");
+  expect(truncateGraphemes("hello", 200)).toBe("hello");
 });
 
 test("truncateGraphemes: exactly the limit is unchanged (no ellipsis)", () => {
   const text = "x".repeat(200);
-  assert.equal(truncateGraphemes(text, 200), text);
+  expect(truncateGraphemes(text, 200)).toBe(text);
 });
 
 test("truncateGraphemes: over the limit is cut to the limit plus an ellipsis", () => {
   const text = "x".repeat(201);
-  assert.equal(truncateGraphemes(text, 200), `${"x".repeat(200)}\u2026`);
+  expect(truncateGraphemes(text, 200)).toBe(`${"x".repeat(200)}\u2026`);
 });
 
 test("truncateGraphemes: grapheme-aware, does not split a ZWJ family emoji", () => {
   // "a" + family emoji (one grapheme, several code points) + "b" = 3 graphemes.
   const text = `a\u{1F468}\u200D\u{1F469}\u200D\u{1F467}b`;
-  assert.equal(truncateGraphemes(text, 2), `a\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u2026`);
+  expect(truncateGraphemes(text, 2)).toBe(`a\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u2026`);
 });
 
 test("truncateGraphemes: grapheme-aware, keeps a combining-character sequence together", () => {
   // "e" + combining acute is one grapheme (two code points); a code-unit split
   // would leave a bare "e" and orphan the combining mark.
-  assert.equal(truncateGraphemes("e\u0301", 1), "e\u0301");
+  expect(truncateGraphemes("e\u0301", 1)).toBe("e\u0301");
 });
 
 // --- buildPreviewBody (pipeline) -----------------------------------------
 
 test("buildPreviewBody: assistant text becomes the body", () => {
-  assert.equal(buildPreviewBody([userMsg("hi"), assistantMsg("done")]), "done");
+  expect(buildPreviewBody([userMsg("hi"), assistantMsg("done")])).toBe("done");
 });
 
 test("buildPreviewBody: empty branch falls back to the static string", () => {
-  assert.equal(buildPreviewBody([]), PREVIEW_FALLBACK);
+  expect(buildPreviewBody([])).toBe(PREVIEW_FALLBACK);
 });
 
 test("buildPreviewBody: a reply that is only a code block falls back", () => {
   const branch: SessionEntry[] = [assistantMsg("```\ncode only\n```")];
-  assert.equal(buildPreviewBody(branch), PREVIEW_FALLBACK);
+  expect(buildPreviewBody(branch)).toBe(PREVIEW_FALLBACK);
 });
 
 test("buildPreviewBody: a tool-call-only reply falls back", () => {
   const branch: SessionEntry[] = [messageEntry(fauxAssistantMessage([fauxToolCall("read", {})]))];
-  assert.equal(buildPreviewBody(branch), PREVIEW_FALLBACK);
+  expect(buildPreviewBody(branch)).toBe(PREVIEW_FALLBACK);
 });
 
 test("buildPreviewBody: long reply is truncated to PREVIEW_GRAPHEMES plus ellipsis", () => {
   const long = "x".repeat(500);
-  assert.equal(buildPreviewBody([assistantMsg(long)]), `${"x".repeat(PREVIEW_GRAPHEMES)}\u2026`);
+  expect(buildPreviewBody([assistantMsg(long)])).toBe(`${"x".repeat(PREVIEW_GRAPHEMES)}\u2026`);
 });
 
 test("buildPreviewBody: a reply with a stack trace keeps only the prose", () => {
   const text = "Failed:\n    at foo (bar.js:1:2)\nRetried and succeeded.";
-  assert.equal(buildPreviewBody([assistantMsg(text)]), "Failed: Retried and succeeded.");
+  expect(buildPreviewBody([assistantMsg(text)])).toBe("Failed: Retried and succeeded.");
 });
 
 test("PREVIEW_GRAPHEMES is 200 (matches Codex)", () => {
-  assert.equal(PREVIEW_GRAPHEMES, 200);
+  expect(PREVIEW_GRAPHEMES).toBe(200);
 });
 
 test("PREVIEW_FALLBACK is the static finished string", () => {
-  assert.equal(PREVIEW_FALLBACK, "Finished - waiting for input");
+  expect(PREVIEW_FALLBACK).toBe("Finished - waiting for input");
 });
