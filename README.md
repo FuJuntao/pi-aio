@@ -21,6 +21,9 @@ project settings; see `pi install --help` for details.
 - **[notify](extensions/notify/README.md)** - cross-platform desktop/terminal
   notifications when pi finishes a run and is waiting for input; stays quiet
   while you're focused on the terminal.
+- **[subagent](extensions/subagent/README.md)** - delegate work to in-process
+  subagents (single or parallel), each in a fresh, config-free context with
+  caller-specified system prompts.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, scripts, and
 contribution guidelines.
