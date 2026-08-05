@@ -42,18 +42,21 @@ import { Type, type Static } from "typebox";
 
 // --- Constants -------------------------------------------------------------
 
-/** Built-in tool names a subagent may use (the empty loader exposes no extension tools). */
-const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"] as const;
-
 /** Max subagents in a single parallel call. */
 const MAX_TASKS = 8;
 /** Max concurrently running subagents in parallel mode. */
-const MAX_CONCURRENT = 4;
+const MAX_CONCURRENT_SUBAGENTS = 4;
 /** Per-task output cap (characters) applied to both `content` and `details.results[].output`. */
 const MAX_OUTPUT_CHARS = 50_000;
 
 // --- Schemas ---------------------------------------------------------------
 
+/**
+ * Thinking level values mirror the `ThinkingLevel` type from `@earendil-works/pi-agent-core`:
+ * `"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`.
+ * `Type.Union(Type.Literal(...))` is the canonical TypeBox encoding — there is no
+ * runtime array export in pi's SDK to derive this from.
+ */
 const thinkingLevelSchema = Type.Union([
   Type.Literal("off"),
   Type.Literal("minimal"),
@@ -213,12 +216,12 @@ export function capOutput(text: string): string {
 export function resolveTools(
   specified: string[] | undefined,
   parentActive: readonly string[],
+  builtinToolNames: ReadonlySet<string>,
 ): string[] {
-  const builtins = new Set<string>(BUILTIN_TOOLS);
-  if (specified) return specified.filter((t) => builtins.has(t));
+  if (specified) return specified.filter((t) => builtinToolNames.has(t));
   const active = new Set(parentActive);
-  const inherited = BUILTIN_TOOLS.filter((t) => active.has(t));
-  return inherited.length > 0 ? [...inherited] : [...BUILTIN_TOOLS];
+  const inherited = [...builtinToolNames].filter((t) => active.has(t));
+  return inherited.length > 0 ? [...inherited] : [...builtinToolNames];
 }
 
 /** Status icon for a task result. */
@@ -280,6 +283,7 @@ async function runOne(
   task: TaskSpec,
   ctx: ExtensionContext,
   parentActiveTools: readonly string[],
+  builtinToolNames: ReadonlySet<string>,
   signal: AbortSignal | undefined,
 ): Promise<TaskResult> {
   const modelLabel =
@@ -299,7 +303,7 @@ async function runOne(
 
     const thinkingLevel = task.thinkingLevel ?? ctx.thinkingLevel;
     const cwd = task.cwd ?? ctx.cwd;
-    const tools = resolveTools(task.tools, parentActiveTools);
+    const tools = resolveTools(task.tools, parentActiveTools, builtinToolNames);
     // exactOptionalPropertyTypes: only pass thinkingLevel when defined.
     const thinking = thinkingLevel === undefined ? {} : { thinkingLevel };
 
@@ -397,10 +401,15 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       ctx,
     ): Promise<AgentToolResult<SubagentDetails>> {
       const parentActiveTools = pi.getActiveTools();
+      const builtinToolNames = new Set(
+        pi.getAllTools()
+          .filter((t) => t.sourceInfo.source === "builtin")
+          .map((t) => t.name),
+      );
 
       // Parallel mode takes precedence when tasks[] is non-empty.
       if (Array.isArray(params.tasks) && params.tasks.length > 0) {
-        return runParallel(params.tasks, ctx, parentActiveTools, signal, onUpdate);
+        return runParallel(params.tasks, ctx, parentActiveTools, builtinToolNames, signal, onUpdate);
       }
 
       // Single mode requires prompt + systemPrompt.
@@ -429,7 +438,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         content: [{ type: "text", text: "subagent: running…" }],
         details: { mode: "single", results: [] },
       });
-      const result = await runOne(task, ctx, parentActiveTools, signal);
+      const result = await runOne(task, ctx, parentActiveTools, builtinToolNames, signal);
       return {
         content: [{ type: "text", text: result.output || `(subagent ${result.status})` }],
         details: { mode: "single", results: [result] },
@@ -467,11 +476,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   });
 }
 
-/** Run up to MAX_TASKS subagents, MAX_CONCURRENT at a time, with progress updates. */
+/** Run up to MAX_TASKS subagents, MAX_CONCURRENT_SUBAGENTS at a time, with progress updates. */
 async function runParallel(
   tasks: TaskSpec[],
   ctx: ExtensionContext,
   parentActiveTools: readonly string[],
+  builtinToolNames: ReadonlySet<string>,
   signal: AbortSignal | undefined,
   onUpdate: AgentToolUpdateCallback<SubagentDetails> | undefined,
 ): Promise<AgentToolResult<SubagentDetails>> {
@@ -506,7 +516,7 @@ async function runParallel(
   };
 
   let next = 0;
-  const workerCount = Math.min(MAX_CONCURRENT, tasks.length);
+  const workerCount = Math.min(MAX_CONCURRENT_SUBAGENTS, tasks.length);
   const workers = Array.from({ length: workerCount }, async () => {
     for (;;) {
       const i = next;
@@ -514,7 +524,7 @@ async function runParallel(
       if (i >= tasks.length) return;
       const task = tasks[i];
       if (!task) continue;
-      results[i] = await runOne(task, ctx, parentActiveTools, signal);
+      results[i] = await runOne(task, ctx, parentActiveTools, builtinToolNames, signal);
       completed += 1;
       emitProgress();
     }

@@ -104,16 +104,18 @@ describe("capOutput", () => {
 });
 
 describe("resolveTools", () => {
+  const BUILTIN_SET = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+
   it("filters specified tools down to known built-ins", () => {
-    expect(resolveTools(["read", "ls", "subagent", "bogus"], [])).toEqual(["read", "ls"]);
+    expect(resolveTools(["read", "ls", "subagent", "bogus"], [], BUILTIN_SET)).toEqual(["read", "ls"]);
   });
 
   it("inherits the parent's active built-ins when unspecified", () => {
-    expect(resolveTools(undefined, ["read", "bash", "subagent"])).toEqual(["read", "bash"]);
+    expect(resolveTools(undefined, ["read", "bash", "subagent"], BUILTIN_SET)).toEqual(["read", "bash"]);
   });
 
   it("falls back to all built-ins when the parent has none active", () => {
-    expect(resolveTools(undefined, ["subagent"])).toEqual([
+    expect(resolveTools(undefined, ["subagent"], BUILTIN_SET)).toEqual([
       "read",
       "bash",
       "edit",
