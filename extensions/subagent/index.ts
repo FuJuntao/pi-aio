@@ -96,11 +96,15 @@ const taskSchema = Type.Object({
   ),
 });
 
-const subagentParams = Type.Object({
-  prompt: Type.Optional(Type.String({ description: "Single mode: the task prompt." })),
-  systemPrompt: Type.Optional(
-    Type.String({ description: "Single mode: required system prompt (no canned default)." }),
-  ),
+/**
+ * Exactly one mode per call: single (`prompt` + `systemPrompt`, both required)
+ * or parallel (`tasks`, 1..MAX_TASKS). Mode-optional fields are per-mode.
+ */
+const singleModeSchema = Type.Object({
+  prompt: Type.String({ description: "Single mode: the task prompt." }),
+  systemPrompt: Type.String({
+    description: "Single mode: required system prompt (no canned default).",
+  }),
   model: Type.Optional(
     Type.String({ description: '"provider/id"; default inherits the parent session model.' }),
   ),
@@ -116,17 +120,25 @@ const subagentParams = Type.Object({
       description: "Single mode: working directory; default inherits the parent cwd.",
     }),
   ),
-  tasks: Type.Optional(
-    Type.Array(taskSchema, {
-      description: `Parallel mode: tasks to run concurrently (max ${MAX_TASKS}). When present, single-mode fields are ignored.`,
-    }),
-  ),
 });
+
+const parallelModeSchema = Type.Object({
+  tasks: Type.Array(taskSchema, {
+    minItems: 1,
+    maxItems: MAX_TASKS,
+    description: `Parallel mode: tasks to run concurrently (max ${MAX_TASKS}).`,
+  }),
+});
+
+const subagentParams = Type.Union([singleModeSchema, parallelModeSchema]);
 
 type SubagentParams = Static<typeof subagentParams>;
 
 /** Per-subagent spec shared by single and parallel modes. */
 type TaskSpec = Static<typeof taskSchema>;
+
+/** Single-mode params (schema-required fields optionalized for runtime backstops). */
+type SingleModeParams = Partial<Static<typeof singleModeSchema>>;
 
 // --- Result types ----------------------------------------------------------
 
@@ -418,7 +430,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       );
 
       // Parallel mode takes precedence when tasks[] is non-empty.
-      if (Array.isArray(params.tasks) && params.tasks.length > 0) {
+      if ("tasks" in params && params.tasks.length > 0) {
         return runParallel(
           params.tasks,
           ctx,
@@ -429,8 +441,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         );
       }
 
-      // Single mode requires prompt + systemPrompt.
-      if (params.prompt === undefined || params.systemPrompt === undefined) {
+      // Single mode requires prompt + systemPrompt. The schema enforces this;
+      // re-check as a runtime backstop for callers that bypass validation.
+      // (An empty `tasks` array - schema-rejected via minItems - lands here too.)
+      const single = params as SingleModeParams;
+      if (single.prompt === undefined || single.systemPrompt === undefined) {
         return {
           content: [
             {
@@ -444,12 +459,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
       // exactOptionalPropertyTypes: only forward defined optional fields.
       const task: TaskSpec = {
-        prompt: params.prompt,
-        systemPrompt: params.systemPrompt,
-        ...(params.model === undefined ? {} : { model: params.model }),
-        ...(params.thinkingLevel === undefined ? {} : { thinkingLevel: params.thinkingLevel }),
-        ...(params.tools === undefined ? {} : { tools: params.tools }),
-        ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
+        prompt: single.prompt,
+        systemPrompt: single.systemPrompt,
+        ...(single.model === undefined ? {} : { model: single.model }),
+        ...(single.thinkingLevel === undefined ? {} : { thinkingLevel: single.thinkingLevel }),
+        ...(single.tools === undefined ? {} : { tools: single.tools }),
+        ...(single.cwd === undefined ? {} : { cwd: single.cwd }),
       };
       onUpdate?.({
         content: [{ type: "text", text: "subagent: running…" }],
