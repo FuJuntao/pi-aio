@@ -69,16 +69,8 @@ describe("resolveTools", () => {
     ]);
   });
 
-  it("falls back to all built-ins when the parent has none active", () => {
-    expect(resolveTools(undefined, ["subagent"], BUILTIN_SET)).toEqual([
-      "read",
-      "bash",
-      "edit",
-      "write",
-      "grep",
-      "find",
-      "ls",
-    ]);
+  it("inherits nothing when the parent has no active built-ins", () => {
+    expect(resolveTools(undefined, ["subagent"], BUILTIN_SET)).toEqual([]);
   });
 });
 

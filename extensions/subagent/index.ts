@@ -233,7 +233,10 @@ export function capOutput(text: string): string {
   return `${text.slice(0, MAX_OUTPUT_CHARS)}\n…[output truncated at ${MAX_OUTPUT_CHARS} chars]`;
 }
 
-/** Resolve the tool allowlist: specified built-ins, else the parent's active built-ins, else all built-ins. */
+/**
+ * Resolve the tool allowlist: the specified built-ins, else the parent's
+ * active built-ins (which may be none - never widened beyond the parent's).
+ */
 export function resolveTools(
   specified: string[] | undefined,
   parentActive: readonly string[],
@@ -241,8 +244,7 @@ export function resolveTools(
 ): string[] {
   if (specified) return specified.filter((t) => builtinToolNames.has(t));
   const active = new Set(parentActive);
-  const inherited = [...builtinToolNames].filter((t) => active.has(t));
-  return inherited.length > 0 ? [...inherited] : [...builtinToolNames];
+  return [...builtinToolNames].filter((t) => active.has(t));
 }
 
 /** Status icon for a task result. */
