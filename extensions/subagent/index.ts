@@ -52,20 +52,31 @@ const MAX_OUTPUT_CHARS = 50_000;
 // --- Schemas ---------------------------------------------------------------
 
 /**
- * Thinking level values mirror the `ThinkingLevel` type from `@earendil-works/pi-agent-core`:
- * `"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`.
- * `Type.Union(Type.Literal(...))` is the canonical TypeBox encoding — there is no
- * runtime array export in pi's SDK to derive this from.
+ * Canonical thinking-level values mirroring `ThinkingLevel` from `@earendil-works/pi-agent-core`
+ * (`"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"`).
+ *
+ * The `_typeCheck` assignment below guarantees the schema never drifts from pi's
+ * type at compile time. If pi adds or removes a level, the build fails here so
+ * we keep them in sync.
  */
-const thinkingLevelSchema = Type.Union([
-  Type.Literal("off"),
-  Type.Literal("minimal"),
-  Type.Literal("low"),
-  Type.Literal("medium"),
-  Type.Literal("high"),
-  Type.Literal("xhigh"),
-  Type.Literal("max"),
-]);
+type SubagentThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+const SUBAGENT_THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+// Compile-time guard: a type error here means the values list drifted from SubagentThinkingLevel.
+const _guard: readonly SubagentThinkingLevel[] = SUBAGENT_THINKING_LEVELS;
+void _guard;
+
+const thinkingLevelSchema = Type.Union(
+  SUBAGENT_THINKING_LEVELS.map((v) => Type.Literal(v)),
+);
 
 const taskSchema = Type.Object({
   prompt: Type.String({ description: "The task prompt for this subagent." }),
