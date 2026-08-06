@@ -74,9 +74,7 @@ const SUBAGENT_THINKING_LEVELS = [
 const _guard: readonly SubagentThinkingLevel[] = SUBAGENT_THINKING_LEVELS;
 void _guard;
 
-const thinkingLevelSchema = Type.Union(
-  SUBAGENT_THINKING_LEVELS.map((v) => Type.Literal(v)),
-);
+const thinkingLevelSchema = Type.Union(SUBAGENT_THINKING_LEVELS.map((v) => Type.Literal(v)));
 
 const taskSchema = Type.Object({
   prompt: Type.String({ description: "The task prompt for this subagent." }),
@@ -216,23 +214,6 @@ class EmptyResourceLoader implements ResourceLoader {
 }
 
 // --- Pure helpers (unit-tested) --------------------------------------------
-
-/** Format current time in Asia/Shanghai for progress updates, e.g. "2026-08-05 06:49:28 CST". */
-export function formatShanghaiTime(): string {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(new Date());
-  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
-  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} CST`;
-}
 
 /** Truncate output to ~MAX_OUTPUT_CHARS, appending a notice when cut. */
 export function capOutput(text: string): string {
@@ -430,14 +411,22 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     ): Promise<AgentToolResult<SubagentDetails>> {
       const parentActiveTools = pi.getActiveTools();
       const builtinToolNames = new Set(
-        pi.getAllTools()
+        pi
+          .getAllTools()
           .filter((t) => t.sourceInfo.source === "builtin")
           .map((t) => t.name),
       );
 
       // Parallel mode takes precedence when tasks[] is non-empty.
       if (Array.isArray(params.tasks) && params.tasks.length > 0) {
-        return runParallel(params.tasks, ctx, parentActiveTools, builtinToolNames, signal, onUpdate);
+        return runParallel(
+          params.tasks,
+          ctx,
+          parentActiveTools,
+          builtinToolNames,
+          signal,
+          onUpdate,
+        );
       }
 
       // Single mode requires prompt + systemPrompt.
@@ -463,7 +452,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
       };
       onUpdate?.({
-        content: [{ type: "text", text: `subagent: running… (${formatShanghaiTime()})` }],
+        content: [{ type: "text", text: "subagent: running…" }],
         details: { mode: "single", results: [] },
       });
       const result = await runOne(task, ctx, parentActiveTools, builtinToolNames, signal);
@@ -541,7 +530,7 @@ async function runParallel(
       content: [
         {
           type: "text",
-          text: `subagent: parallel ${done.length}/${tasks.length} done (${formatShanghaiTime()})`,
+          text: `subagent: parallel ${done.length}/${tasks.length} done, ${tasks.length - done.length} running`,
         },
       ],
       details: { mode: "parallel", results: done },
