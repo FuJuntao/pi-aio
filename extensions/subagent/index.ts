@@ -261,12 +261,16 @@ function statusColor(status: TaskStatus): "success" | "warning" | "error" {
   return "error";
 }
 
-/** A compact usage label, e.g. `3t · 1.2k out · $0.0042`. */
+/** A compact usage label, e.g. `3t · 1200 out · $0.0042`. */
 function formatUsage(usage: TaskUsage): string {
   return `${usage.turns}t · ${usage.output} out · $${usage.cost.toFixed(4)}`;
 }
 
-/** One-line-per-task summary used by `renderResult` (pure, unit-tested). */
+/**
+ * One-line-per-task plain-text summary of a subagent result.
+ * `renderResult` renders this same shape with theme colors applied; the
+ * helper is exported so the shape is unit-testable without a TUI.
+ */
 export function summarizeResults(details: SubagentDetails): string[] {
   const lines: string[] = [];
   if (details.mode === "parallel") {
@@ -540,7 +544,6 @@ async function runParallel(
   }
 
   const results: (TaskResult | undefined)[] = Array.from({ length: tasks.length });
-  let completed = 0;
   const emitProgress = (): void => {
     const done = results.filter((r): r is TaskResult => r !== undefined);
     onUpdate?.({
@@ -564,7 +567,6 @@ async function runParallel(
       const task = tasks[i];
       if (!task) continue;
       results[i] = await runOne(task, ctx, parentActiveTools, builtinToolNames, signal);
-      completed += 1;
       emitProgress();
     }
   });
