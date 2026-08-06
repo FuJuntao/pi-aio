@@ -62,6 +62,10 @@ the tool then resolves cleanly with `status: "aborted"` instead of failing.
   subagent's tool set.
 - Subagents are synchronous: the parent turn blocks until all spawned
   subagents finish.
+- Only the parent's API key is forwarded to a subagent's in-memory runtime;
+  custom auth **headers** from `getApiKeyAndHeaders` are not, because
+  `ModelRuntime` exposes no runtime-header override. Providers that require
+  extra headers may not authenticate inside a subagent.
 
 ## Development
 
