@@ -217,6 +217,23 @@ class EmptyResourceLoader implements ResourceLoader {
 
 // --- Pure helpers (unit-tested) --------------------------------------------
 
+/** Format current time in Asia/Shanghai for progress updates, e.g. "2026-08-05 06:49:28 CST". */
+export function formatShanghaiTime(): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(new Date());
+  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} CST`;
+}
+
 /** Truncate output to ~MAX_OUTPUT_CHARS, appending a notice when cut. */
 export function capOutput(text: string): string {
   if (text.length <= MAX_OUTPUT_CHARS) return text;
@@ -446,7 +463,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
       };
       onUpdate?.({
-        content: [{ type: "text", text: "subagent: running…" }],
+        content: [{ type: "text", text: `subagent: running… (${formatShanghaiTime()})` }],
         details: { mode: "single", results: [] },
       });
       const result = await runOne(task, ctx, parentActiveTools, builtinToolNames, signal);
@@ -521,7 +538,12 @@ async function runParallel(
   const emitProgress = (): void => {
     const done = results.filter((r): r is TaskResult => r !== undefined);
     onUpdate?.({
-      content: [{ type: "text", text: `subagent: parallel ${done.length}/${tasks.length} done` }],
+      content: [
+        {
+          type: "text",
+          text: `subagent: parallel ${done.length}/${tasks.length} done (${formatShanghaiTime()})`,
+        },
+      ],
       details: { mode: "parallel", results: done },
     });
   };
