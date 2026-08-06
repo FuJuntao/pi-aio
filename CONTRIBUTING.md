@@ -223,14 +223,18 @@ with no secrets. Config lives in [`vitest.config.ts`](vitest.config.ts): node
 environment, explicit imports (no reliance on globals despite `globals: true`),
 file-per-process isolation, offline-by-default, and a 30s timeout for sessions.
 
-Tests live in a flat [`test/`](test/) directory (not co-located with source),
-organized by **behavior domain**, not one file per source module - e.g.
+Tests live under [`test/`](test/) (not co-located with source), organized by
+**behavior domain**, not one file per source module. Name suites
+`test/<extension>-<domain>.test.ts`, or group an extension's suites in a
+`test/<extension>/` subdirectory as `<domain>.test.ts` - e.g.
 `test/notify-e2e.test.ts` (real-runtime behaviors),
 `test/notify-selection.test.ts` (the platform -> channel matrix),
 `test/notify-channels.test.ts` (per-channel argv/escape bytes),
 `test/notify-focus.test.ts` (focus-sequence parsing), `test/notify-config.test.ts`
 (config merge/warnings), `test/notify-gating.test.ts` (the settle-gating truth
-table). The `test/` tree is outside the `files` allowlist, so it never ships in
+table), and `test/subagent/e2e.test.ts` + `test/subagent/helpers.test.ts`
+(real-runtime behaviors vs pure helpers). `test/harness/` is the shared e2e
+harness, not a suite. The `test/` tree is outside the `files` allowlist, so it never ships in
 the npm tarball. Import `{ test }` (or `describe` / `it` / `expect`) from
 `vitest` explicitly so oxlint never sees undefined globals.
 
@@ -270,7 +274,8 @@ uiContext, mode })` to capture `setTitle` / `notify` / `onTerminalInput`,
   (`notify-gating.test.ts`). These take `platform` / `env` / `isTTY` / etc. as
   arguments, so no env or module stubbing is needed.
 
-To add tests for a new extension, add `test/<extension>-*.test.ts` files and
+To add tests for a new extension, add `test/<extension>-<domain>.test.ts`
+files (or a `test/<extension>/` subdirectory of `<domain>.test.ts` files) and
 reuse `createExtensionSession({ extensionPath, responses?, configFiles?,
 rawProjectFiles?, mode? })` from [`test/harness/`](test/harness/) for e2e - pass the
 extension's source directory (a dir with `index.ts` loads as one entry), script
