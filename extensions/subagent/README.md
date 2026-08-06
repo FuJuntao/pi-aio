@@ -66,5 +66,6 @@ the tool then resolves cleanly with `status: "aborted"` instead of failing.
 ## Development
 
 Pure helpers (output capping, tool resolution, result summarising) are unit
-tested; the tool is exercised end-to-end through pi's real runtime with the
-offline faux provider in [`test/subagent/subagent.test.ts`](../../test/subagent/subagent.test.ts).
+tested in [`test/subagent/helpers.test.ts`](../../test/subagent/helpers.test.ts);
+the tool is exercised end-to-end through pi's real runtime with the offline
+faux provider in [`test/subagent/e2e.test.ts`](../../test/subagent/e2e.test.ts).
