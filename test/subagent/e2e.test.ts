@@ -90,8 +90,7 @@ describe("subagent tool (e2e)", () => {
         // Parent turn 1: call the tool.
         fauxAssistantMessage(
           fauxToolCall("subagent", {
-            prompt: "child task",
-            systemPrompt: "You are a child subagent.",
+            agents: [{ prompt: "child task", systemPrompt: "You are a child subagent." }],
           }),
         ),
         // Subagent turn: its reply becomes the tool output.
@@ -137,8 +136,7 @@ describe("subagent tool (e2e)", () => {
       responses: [
         fauxAssistantMessage(
           fauxToolCall("subagent", {
-            prompt: "child task",
-            systemPrompt: "You are a child subagent.",
+            agents: [{ prompt: "child task", systemPrompt: "You are a child subagent." }],
           }),
         ),
         captureChild,
@@ -166,8 +164,7 @@ describe("subagent tool (e2e)", () => {
         // Child 1: no tools specified -> inherit parent active built-ins.
         fauxAssistantMessage(
           fauxToolCall("subagent", {
-            prompt: "inherit tools",
-            systemPrompt: "You are a child subagent.",
+            agents: [{ prompt: "inherit tools", systemPrompt: "You are a child subagent." }],
           }),
         ),
         captureTools,
@@ -175,9 +172,13 @@ describe("subagent tool (e2e)", () => {
         // Child 2: explicit allowlist.
         fauxAssistantMessage(
           fauxToolCall("subagent", {
-            prompt: "explicit tools",
-            systemPrompt: "You are a child subagent.",
-            tools: ["read", "ls"],
+            agents: [
+              {
+                prompt: "explicit tools",
+                systemPrompt: "You are a child subagent.",
+                tools: ["read", "ls"],
+              },
+            ],
           }),
         ),
         captureTools,
@@ -207,7 +208,7 @@ describe("subagent tool (e2e)", () => {
       responses: [
         fauxAssistantMessage(
           fauxToolCall("subagent", {
-            tasks: [
+            agents: [
               { prompt: "task A", systemPrompt: "You are subagent A." },
               { prompt: "task B", systemPrompt: "You are subagent B." },
               { prompt: "task C", systemPrompt: "You are subagent C." },
@@ -260,8 +261,7 @@ describe("subagent tool (e2e)", () => {
       responses: [
         fauxAssistantMessage(
           fauxToolCall("subagent", {
-            prompt: "slow task",
-            systemPrompt: "You are a child subagent.",
+            agents: [{ prompt: "slow task", systemPrompt: "You are a child subagent." }],
           }),
         ),
         slowChild,

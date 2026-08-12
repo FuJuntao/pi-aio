@@ -8,11 +8,12 @@ in-process subagents - each running in a **fresh, config-free context**.
 
 The extension registers a single `subagent` tool. When pi calls it, the tool
 spawns a nested agent session in the same process, blocks until it finishes,
-and returns the subagent's final output plus token/cost usage. Two modes:
+and returns the subagent's final output plus token/cost usage. Pass an
+`agents` array (1..8):
 
-- **Single** - pass `prompt` + `systemPrompt` for one subagent.
-- **Parallel** - pass `tasks` (up to 8) to run several subagents concurrently
-  (at most 4 at a time), and get one aggregated result back.
+- **One agent** - runs a single subagent.
+- **Several agents** - run concurrently (at most 4 at a time) and return one
+  aggregated result.
 
 Each subagent gets:
 
@@ -29,17 +30,15 @@ Each subagent gets:
 
 ## Tool parameters
 
-| Field           | Single | Parallel | Meaning                                                                                                                                              |
-| --------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt`        | ✓ req  | per task | The task for the subagent.                                                                                                                           |
-| `systemPrompt`  | ✓ req  | per task | The subagent's system prompt (required; no default).                                                                                                 |
-| `tasks`         | -      | ✓ req    | Array of `{prompt, systemPrompt, ...}` (max 8).                                                                                                      |
-| `model`         | opt    | per task | `"provider/id"`; default inherits the parent session's model.                                                                                        |
-| `thinkingLevel` | opt    | per task | `off`…`max`; default inherits the parent's thinking level.                                                                                           |
-| `tools`         | opt    | per task | Built-in tool allowlist (`read`/`bash`/`edit`/`write`/`grep`/`find`/`ls`); default inherits the parent's active built-ins (never `subagent` itself). |
-| `cwd`           | opt    | per task | Working directory; default inherits the parent's cwd.                                                                                                |
-
-When `tasks` is present, the single-mode fields are ignored.
+| Field                    | Required | Meaning                                                                                                                                              |
+| ------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`                 | ✓ req    | Array of subagent specs (1..8); one runs solo, several run concurrently.                                                                             |
+| `agents[].prompt`        | ✓ req    | The task for the subagent.                                                                                                                           |
+| `agents[].systemPrompt`  | ✓ req    | The subagent's system prompt (required; no default).                                                                                                 |
+| `agents[].model`         | opt      | `"provider/id"`; default inherits the parent session's model.                                                                                        |
+| `agents[].thinkingLevel` | opt      | `off`…`max`; default inherits the parent's thinking level.                                                                                           |
+| `agents[].tools`         | opt      | Built-in tool allowlist (`read`/`bash`/`edit`/`write`/`grep`/`find`/`ls`); default inherits the parent's active built-ins (never `subagent` itself). |
+| `agents[].cwd`           | opt      | Working directory; default inherits the parent's cwd.                                                                                                |
 
 ## Results and abort
 

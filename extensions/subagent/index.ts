@@ -74,7 +74,14 @@ const SUBAGENT_THINKING_LEVELS = [
 const _guard: readonly SubagentThinkingLevel[] = SUBAGENT_THINKING_LEVELS;
 void _guard;
 
-const thinkingLevelSchema = Type.Union(SUBAGENT_THINKING_LEVELS.map((v) => Type.Literal(v)));
+// `Type.Unsafe<SubagentThinkingLevel>(Type.String({ enum }))` emits a clean
+// `{ type: "string", enum: [...] }` (no property-level `anyOf`) while keeping the
+// literal-union `Static` type, so `task.thinkingLevel` stays assignable to pi's
+// `ThinkingLevel`. typebox's `~unsafe` marker is non-enumerable, so it does not
+// leak into the JSON schema sent to providers.
+export const thinkingLevelSchema = Type.Unsafe<SubagentThinkingLevel>(
+  Type.String({ enum: [...SUBAGENT_THINKING_LEVELS] }),
+);
 
 const taskSchema = Type.Object({
   prompt: Type.String({ description: "The task prompt for this subagent." }),
@@ -97,48 +104,25 @@ const taskSchema = Type.Object({
 });
 
 /**
- * Exactly one mode per call: single (`prompt` + `systemPrompt`, both required)
- * or parallel (`tasks`, 1..MAX_TASKS). Mode-optional fields are per-mode.
+ * Tool params: a single required `agents` array (1..MAX_TASKS). One element
+ * runs a single subagent; several run concurrently. Using one root
+ * `Type.Object` with a required `agents` field (instead of a `Type.Union` of
+ * single/parallel shapes) keeps the root JSON schema as `{ type: "object" }`
+ * with no top-level `anyOf` - some providers (e.g. DeepSeek) reject a root
+ * `anyOf` with HTTP 400 ("schema must be a JSON Schema of type: object").
  */
-const singleModeSchema = Type.Object({
-  prompt: Type.String({ description: "Single mode: the task prompt." }),
-  systemPrompt: Type.String({
-    description: "Single mode: required system prompt (no canned default).",
-  }),
-  model: Type.Optional(
-    Type.String({ description: '"provider/id"; default inherits the parent session model.' }),
-  ),
-  thinkingLevel: Type.Optional(thinkingLevelSchema),
-  tools: Type.Optional(
-    Type.Array(Type.String(), {
-      description:
-        "Single mode: built-in tool names to enable; default inherits the parent's active built-ins.",
-    }),
-  ),
-  cwd: Type.Optional(
-    Type.String({
-      description: "Single mode: working directory; default inherits the parent cwd.",
-    }),
-  ),
-});
-
-const parallelModeSchema = Type.Object({
-  tasks: Type.Array(taskSchema, {
+export const subagentParams = Type.Object({
+  agents: Type.Array(taskSchema, {
     minItems: 1,
     maxItems: MAX_TASKS,
-    description: `Parallel mode: tasks to run concurrently (max ${MAX_TASKS}).`,
+    description: `Subagents to run (max ${MAX_TASKS}); one runs solo, several run concurrently.`,
   }),
 });
-
-const subagentParams = Type.Union([singleModeSchema, parallelModeSchema]);
 
 type SubagentParams = Static<typeof subagentParams>;
 
-/** Per-subagent spec shared by single and parallel modes. */
+/** Per-subagent spec. */
 type TaskSpec = Static<typeof taskSchema>;
-
-/** Single-mode params (schema-required fields optionalized for runtime backstops). */
-type SingleModeParams = Partial<Static<typeof singleModeSchema>>;
 
 // --- Result types ----------------------------------------------------------
 
@@ -408,15 +392,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     description:
       "Delegate work to one or more in-process subagents, each in a fresh context with no " +
       "agent config files read (no agents/*.md, skills, prompts, themes, or context files). " +
-      "Single mode: pass prompt + systemPrompt (+ optional model/thinkingLevel/tools/cwd). " +
-      "Parallel mode: pass tasks[] (max 8, run concurrently). Each subagent's systemPrompt is " +
-      "required (no canned default); model/thinkingLevel/tools/cwd default to the parent " +
-      "session's values. Blocks until all subagents finish and returns each one's output + usage.",
-    promptSnippet:
-      "subagent: delegate a task to a fresh, config-free subagent (single or parallel)",
+      "Pass an `agents` array (1..8): one element runs a single subagent; several run " +
+      "concurrently (at most 4 at a time). Each agent's `systemPrompt` is required (no canned " +
+      "default); `model`/`thinkingLevel`/`tools`/`cwd` default to the parent session's values. " +
+      "Blocks until all subagents finish and returns each one's output + usage.",
+    promptSnippet: "subagent: delegate work to one or more fresh, config-free subagents",
     promptGuidelines: [
       "Always give each subagent an explicit `systemPrompt` describing its role - there is no default.",
-      "Use `tasks` to run independent subtasks concurrently; use single mode for one task.",
+      "Pass one agent for a single task; pass several to run independent subtasks concurrently (max 8).",
     ],
     parameters: subagentParams,
 
@@ -435,52 +418,37 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           .map((t) => t.name),
       );
 
-      // Parallel mode takes precedence when tasks[] is non-empty.
-      if ("tasks" in params && params.tasks.length > 0) {
-        return runParallel(
-          params.tasks,
-          ctx,
-          parentActiveTools,
-          builtinToolNames,
-          signal,
-          onUpdate,
-        );
-      }
-
-      // Single mode requires prompt + systemPrompt. The schema enforces this;
-      // re-check as a runtime backstop for callers that bypass validation.
-      // (An empty `tasks` array - schema-rejected via minItems - lands here too.)
-      const single = params as SingleModeParams;
-      if (single.prompt === undefined || single.systemPrompt === undefined) {
+      const agents = params.agents;
+      // Runtime backstop: the schema requires `agents` (minItems 1) and a
+      // `prompt` + `systemPrompt` per agent. Re-check for callers that bypass
+      // validation and surface a clean error instead of crashing.
+      if (agents.length === 0 || agents.some((a) => !a.prompt || !a.systemPrompt)) {
         return {
           content: [
             {
               type: "text",
-              text: "subagent: provide either `tasks` (parallel mode) or both `prompt` and `systemPrompt` (single mode).",
+              text: "subagent: `agents` must be a non-empty array; each agent needs both `prompt` and `systemPrompt`.",
             },
           ],
-          details: { mode: "single", results: [] },
+          details: { mode: agents.length > 1 ? "parallel" : "single", results: [] },
         };
       }
 
-      // exactOptionalPropertyTypes: only forward defined optional fields.
-      const task: TaskSpec = {
-        prompt: single.prompt,
-        systemPrompt: single.systemPrompt,
-        ...(single.model === undefined ? {} : { model: single.model }),
-        ...(single.thinkingLevel === undefined ? {} : { thinkingLevel: single.thinkingLevel }),
-        ...(single.tools === undefined ? {} : { tools: single.tools }),
-        ...(single.cwd === undefined ? {} : { cwd: single.cwd }),
-      };
-      onUpdate?.({
-        content: [{ type: "text", text: "subagent: running…" }],
-        details: { mode: "single", results: [] },
-      });
-      const result = await runOne(task, ctx, parentActiveTools, builtinToolNames, signal);
-      return {
-        content: [{ type: "text", text: result.output || `(subagent ${result.status})` }],
-        details: { mode: "single", results: [result] },
-      };
+      // One agent -> single-mode rendering; several -> run concurrently.
+      if (agents.length === 1) {
+        const task = agents[0]!;
+        onUpdate?.({
+          content: [{ type: "text", text: "subagent: running…" }],
+          details: { mode: "single", results: [] },
+        });
+        const result = await runOne(task, ctx, parentActiveTools, builtinToolNames, signal);
+        return {
+          content: [{ type: "text", text: result.output || `(subagent ${result.status})` }],
+          details: { mode: "single", results: [result] },
+        };
+      }
+
+      return runParallel(agents, ctx, parentActiveTools, builtinToolNames, signal, onUpdate);
     },
 
     renderResult(result, { isPartial }, theme: Theme) {
@@ -516,41 +484,34 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
 /** Run up to MAX_TASKS subagents, MAX_CONCURRENT_SUBAGENTS at a time, with progress updates. */
 async function runParallel(
-  tasks: TaskSpec[],
+  agents: TaskSpec[],
   ctx: ExtensionContext,
   parentActiveTools: readonly string[],
   builtinToolNames: ReadonlySet<string>,
   signal: AbortSignal | undefined,
   onUpdate: AgentToolUpdateCallback<SubagentDetails> | undefined,
 ): Promise<AgentToolResult<SubagentDetails>> {
-  if (tasks.length > MAX_TASKS) {
+  // Backstop for the schema's maxItems cap (execute already validated each agent).
+  if (agents.length > MAX_TASKS) {
     return {
       content: [
         {
           type: "text",
-          text: `subagent: parallel mode supports at most ${MAX_TASKS} tasks; got ${tasks.length}.`,
+          text: `subagent: supports at most ${MAX_TASKS} agents; got ${agents.length}.`,
         },
       ],
       details: { mode: "parallel", results: [] },
     };
   }
-  if (tasks.some((t) => !t.prompt || !t.systemPrompt)) {
-    return {
-      content: [
-        { type: "text", text: "subagent: every task requires both `prompt` and `systemPrompt`." },
-      ],
-      details: { mode: "parallel", results: [] },
-    };
-  }
 
-  const results: (TaskResult | undefined)[] = Array.from({ length: tasks.length });
+  const results: (TaskResult | undefined)[] = Array.from({ length: agents.length });
   const emitProgress = (): void => {
     const done = results.filter((r): r is TaskResult => r !== undefined);
     onUpdate?.({
       content: [
         {
           type: "text",
-          text: `subagent: parallel ${done.length}/${tasks.length} done, ${tasks.length - done.length} running`,
+          text: `subagent: parallel ${done.length}/${agents.length} done, ${agents.length - done.length} running`,
         },
       ],
       details: { mode: "parallel", results: done },
@@ -558,13 +519,13 @@ async function runParallel(
   };
 
   let next = 0;
-  const workerCount = Math.min(MAX_CONCURRENT_SUBAGENTS, tasks.length);
+  const workerCount = Math.min(MAX_CONCURRENT_SUBAGENTS, agents.length);
   const workers = Array.from({ length: workerCount }, async () => {
     for (;;) {
       const i = next;
       next += 1;
-      if (i >= tasks.length) return;
-      const task = tasks[i];
+      if (i >= agents.length) return;
+      const task = agents[i];
       if (!task) continue;
       results[i] = await runOne(task, ctx, parentActiveTools, builtinToolNames, signal);
       emitProgress();
